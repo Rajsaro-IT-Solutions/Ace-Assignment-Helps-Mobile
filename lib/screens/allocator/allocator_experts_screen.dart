@@ -16,6 +16,14 @@ class AllocatorExpertsScreen extends StatefulWidget {
 class _AllocatorExpertsScreenState extends State<AllocatorExpertsScreen> {
   bool _loading = true;
   List<ExpertModel> _experts = [];
+  final _searchCtrl = TextEditingController();
+  String _statusFilter = 'All';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -34,8 +42,26 @@ class _AllocatorExpertsScreenState extends State<AllocatorExpertsScreen> {
     }
   }
 
+  List<ExpertModel> get _filteredExperts {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    return _experts.where((e) {
+      final isBusy = e.activeTasks > 2;
+      if (_statusFilter == 'Available' && isBusy) return false;
+      if (_statusFilter == 'Busy' && !isBusy) return false;
+      if (q.isNotEmpty) {
+        return e.name.toLowerCase().contains(q) ||
+            e.expertId.toLowerCase().contains(q) ||
+            e.specialization.toLowerCase().contains(q);
+      }
+      return true;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final list = _filteredExperts;
+    final availableCount = _experts.where((e) => e.activeTasks <= 2).length;
+
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
@@ -54,18 +80,54 @@ class _AllocatorExpertsScreenState extends State<AllocatorExpertsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Search & Filters
+                    TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search by expert name, ID, or subject...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        filled: true,
+                        fillColor: AppTheme.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.border)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: ['All', 'Available', 'Busy'].map((f) {
+                        final isSel = _statusFilter == f;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(f == 'Available' ? 'Available ($availableCount)' : f),
+                            selected: isSel,
+                            selectedColor: AppTheme.primary,
+                            labelStyle: TextStyle(
+                              color: isSel ? Colors.white : AppTheme.textMain,
+                              fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 12,
+                            ),
+                            onSelected: (_) => setState(() => _statusFilter = f),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+
                     Text(
-                      'Academic Experts Directory (${_experts.length})',
+                      'Academic Specialists (${list.length})',
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textMain),
                     ),
                     const SizedBox(height: 12),
                     ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _experts.length,
+                      itemCount: list.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (ctx, i) {
-                        final e = _experts[i];
+                        final e = list[i];
                         final isBusy = e.activeTasks > 2;
 
                         return Container(

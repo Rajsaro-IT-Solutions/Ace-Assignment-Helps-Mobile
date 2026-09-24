@@ -19,6 +19,16 @@ class AllocatorPendingScreen extends StatefulWidget {
 class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
   bool _loading = true;
   List<AssignmentModel> _pendingAssignments = [];
+  final _searchCtrl = TextEditingController();
+  String _priorityFilter = 'All';
+
+  final List<String> _priorityOptions = ['All', 'Urgent', 'High', 'Normal', 'Low'];
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -47,6 +57,8 @@ class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
 
     String? selectedExpertId = experts.isNotEmpty ? experts.first.expertId : null;
     DateTime expertDeadline = DateTime.now().add(const Duration(days: 3));
+    String productionStatus = 'In Progress';
+    final notesCtrl = TextEditingController();
     bool allocating = false;
 
     showModalBottomSheet(
@@ -157,7 +169,33 @@ class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 14),
+
+                const Text('Initial Production Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: productionStatus,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: ['In Progress', 'Under QA', 'Pending'].map((s) {
+                    return DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 12)));
+                  }).toList(),
+                  onChanged: (v) {
+                    if (v != null) setSheetState(() => productionStatus = v);
+                  },
+                ),
+                const SizedBox(height: 14),
+
+                const Text('Internal Technical Guidelines for Specialist', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: notesCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'Enter specific research methodology or referencing instructions...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 20),
 
                 SizedBox(
                   width: double.infinity,
@@ -173,6 +211,8 @@ class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
                               expertId: selectedExpertId!,
                               allocatorId: widget.user.id,
                               deadline: DateFormat('yyyy-MM-dd 23:59:59').format(expertDeadline),
+                              status: productionStatus,
+                              internalNotes: notesCtrl.text.trim(),
                             );
                             if (!mounted) return;
                             navigator.pop();
@@ -198,8 +238,24 @@ class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
     );
   }
 
+  List<AssignmentModel> get _filteredAssignments {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    return _pendingAssignments.where((a) {
+      if (_priorityFilter != 'All' && a.priority.toLowerCase() != _priorityFilter.toLowerCase()) {
+        return false;
+      }
+      if (q.isNotEmpty) {
+        return a.assignmentId.toLowerCase().contains(q) ||
+            a.title.toLowerCase().contains(q) ||
+            a.subject.toLowerCase().contains(q);
+      }
+      return true;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final list = _filteredAssignments;
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
@@ -252,9 +308,47 @@ class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
                         ],
                       ),
                     ),
+                    // Search Bar
+                    TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search pending orders by ID or subject...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        filled: true,
+                        fillColor: AppTheme.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.border)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Priority Chips
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: _priorityOptions.map((p) {
+                          final isSel = _priorityFilter == p;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(p),
+                              selected: isSel,
+                              selectedColor: AppTheme.warning,
+                              labelStyle: TextStyle(
+                                color: isSel ? Colors.white : AppTheme.textMain,
+                                fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 11,
+                              ),
+                              onSelected: (_) => setState(() => _priorityFilter = p),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
                     const SizedBox(height: 16),
 
-                    if (_pendingAssignments.isEmpty)
+                    if (list.isEmpty)
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(36),
@@ -277,10 +371,10 @@ class _AllocatorPendingScreenState extends State<AllocatorPendingScreen> {
                       ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _pendingAssignments.length,
+                        itemCount: list.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (ctx, i) {
-                          final a = _pendingAssignments[i];
+                          final a = list[i];
                           return Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(

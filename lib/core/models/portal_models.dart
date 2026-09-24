@@ -81,6 +81,8 @@ class ExpertModel {
       activeTasks: int.tryParse(json['active_tasks']?.toString() ?? '0') ?? 0,
     );
   }
+
+  String get specialization => subjects;
 }
 
 class StudentDirectoryModel {

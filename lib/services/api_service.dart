@@ -295,7 +295,21 @@ class ApiService {
     required String expertId,
     required String allocatorId,
     required String deadline,
+    String status = 'In Progress',
+    String internalNotes = '',
   }) async {
+    try {
+      final dbOk = await DirectDbService.allocateExpertDirect(
+        assignmentId: assignmentId,
+        expertId: expertId,
+        allocatorId: allocatorId,
+        deadline: deadline,
+        status: status,
+        internalNotes: internalNotes,
+      );
+      if (dbOk) return true;
+    } catch (_) {}
+
     try {
       final uri = Uri.parse(ApiConfig.portalApiEndpoint);
       final response = await http.post(
@@ -866,6 +880,15 @@ class ApiService {
     required String allocatorName,
   }) async {
     try {
+      final dbOk = await DirectDbService.allocatorApproveQaDirect(
+        assignmentId: assignmentId,
+        allocatorId: allocatorId,
+        allocatorName: allocatorName,
+      );
+      if (dbOk) return true;
+    } catch (_) {}
+
+    try {
       final uri = Uri.parse(ApiConfig.portalApiEndpoint);
       final response = await http.post(
         uri,
@@ -891,6 +914,16 @@ class ApiService {
     required String allocatorName,
     required String instructions,
   }) async {
+    try {
+      final dbOk = await DirectDbService.allocatorRequestRevisionDirect(
+        assignmentId: assignmentId,
+        allocatorId: allocatorId,
+        allocatorName: allocatorName,
+        instructions: instructions,
+      );
+      if (dbOk) return true;
+    } catch (_) {}
+
     try {
       final uri = Uri.parse(ApiConfig.portalApiEndpoint);
       final response = await http.post(
@@ -1641,6 +1674,85 @@ class ApiService {
   /// System Backup
   static Future<Map<String, dynamic>> generateSystemBackup() async {
     return await DirectDbService.generateSystemBackup();
+  }
+
+  /// Allocator Deliverable Files CRUD
+  static Future<bool> uploadDeliverable({
+    required String assignmentId,
+    required String fileName,
+    required String fileType,
+    required String fileStage,
+    required String uploadedBy,
+    required bool isInternal,
+    String path = '',
+  }) async {
+    return await DirectDbService.uploadDeliverableDirect(
+      assignmentId: assignmentId,
+      fileName: fileName,
+      fileType: fileType,
+      fileStage: fileStage,
+      uploadedBy: uploadedBy,
+      isInternal: isInternal,
+      path: path,
+    );
+  }
+
+  static Future<bool> toggleFileStage({
+    required int fileId,
+    required String newStage,
+  }) async {
+    return await DirectDbService.toggleFileStageDirect(
+      fileId: fileId,
+      newStage: newStage,
+    );
+  }
+
+  static Future<bool> deleteFile({required int fileId}) async {
+    return await DirectDbService.deleteFileDirect(fileId: fileId);
+  }
+
+  /// Allocator Email Center
+  static Future<bool> sendAutomatedEmail({
+    required String assignmentId,
+    required String template,
+    required String recipient,
+    required String senderId,
+    required String senderName,
+    String customMessage = '',
+  }) async {
+    return await DirectDbService.sendAutomatedEmailDirect(
+      assignmentId: assignmentId,
+      template: template,
+      recipient: recipient,
+      senderId: senderId,
+      senderName: senderName,
+      customMessage: customMessage,
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getEmailHistory() async {
+    return await DirectDbService.getEmailHistoryDirect();
+  }
+
+  /// Allocator Completed Log
+  static Future<List<AssignmentModel>> getCompletedAssignmentsForAllocator() async {
+    return await DirectDbService.getCompletedAssignmentsDirect();
+  }
+
+  /// Allocator Notifications
+  static Future<List<NotificationModel>> getAllocatorNotifications({
+    required String allocatorId,
+  }) async {
+    return await DirectDbService.getAllocatorNotificationsDirect(allocatorId: allocatorId);
+  }
+
+  static Future<bool> markAllAllocatorNotificationsRead({
+    required String allocatorId,
+  }) async {
+    return await DirectDbService.markAllNotificationsReadDirect(
+      userRole: 'Allocator',
+      userId: allocatorId,
+    );
   }
 }
 

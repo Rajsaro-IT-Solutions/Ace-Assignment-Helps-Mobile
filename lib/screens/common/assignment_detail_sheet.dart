@@ -287,6 +287,257 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
     );
   }
 
+  void _showAllocatorWorkflowDialog() async {
+    final experts = await ApiService.getExperts();
+    if (!mounted) return;
+
+    String selectedExpert = widget.assignment.expertId;
+    String selectedStatus = widget.assignment.status;
+    final notesCtrl = TextEditingController();
+    bool saving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Workflow & Allocation Control'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Assign Primary Expert', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: experts.any((e) => e.expertId == selectedExpert) ? selectedExpert : '',
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('Unassigned', style: TextStyle(fontSize: 12))),
+                    ...experts.map((e) => DropdownMenuItem(
+                          value: e.expertId,
+                          child: Text('${e.name} (${e.status})', style: const TextStyle(fontSize: 12)),
+                        )),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setDlgState(() => selectedExpert = val);
+                  },
+                ),
+                const SizedBox(height: 14),
+
+                const Text('Production Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: ['Pending', 'In Progress', 'Under Review', 'Quality Check', 'Completed', 'Cancelled'].contains(selectedStatus)
+                      ? selectedStatus
+                      : 'In Progress',
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: ['Pending', 'In Progress', 'Under Review', 'Quality Check', 'Completed', 'Cancelled']
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 12))))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) setDlgState(() => selectedStatus = val);
+                  },
+                ),
+                const SizedBox(height: 14),
+
+                const Text('Internal Technical Notes / Remarks', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: notesCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'Enter guidelines for the assigned expert...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      setDlgState(() => saving = true);
+                      final ok = await ApiService.allocateExpert(
+                        assignmentId: widget.assignment.assignmentId,
+                        expertId: selectedExpert,
+                        allocatorId: widget.currentUser.id,
+                        deadline: widget.assignment.deadline,
+                        status: selectedStatus,
+                        internalNotes: notesCtrl.text.trim(),
+                      );
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+                      if (!mounted) return;
+                      if (ok) {
+                        Navigator.pop(context);
+                        widget.onStatusChanged?.call();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Allocation updated successfully!'), backgroundColor: AppTheme.success),
+                        );
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showUploadDeliverableDialog() {
+    final nameCtrl = TextEditingController(text: 'Solution_Deliverable_${widget.assignment.assignmentId}.docx');
+    String fileType = 'Complete Solution';
+    String fileStage = 'Complete';
+    bool isInternal = false;
+    bool uploading = false;
+
+    final types = [
+      'Complete Solution',
+      'Draft Solution',
+      'Turnitin Plagiarism Report',
+      'Source Code / Script',
+      'Dataset / Archive',
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Upload Deliverable File'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('File Name *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 14),
+
+                const Text('Deliverable Type *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: fileType,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: types.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 12)))).toList(),
+                  onChanged: (v) {
+                    if (v != null) setDlgState(() => fileType = v);
+                  },
+                ),
+                const SizedBox(height: 14),
+
+                const Text('Access Stage *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: fileStage,
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'Complete', child: Text('Complete File / Final Solution', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'Draft', child: Text('Draft Deliverable (Milestone)', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setDlgState(() => fileStage = v);
+                  },
+                ),
+                const SizedBox(height: 14),
+
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Staff Internal File (Hidden from student)', style: TextStyle(fontSize: 12)),
+                  value: isInternal,
+                  onChanged: (v) => setDlgState(() => isInternal = v ?? false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: uploading
+                  ? null
+                  : () async {
+                      setDlgState(() => uploading = true);
+                      final ok = await ApiService.uploadDeliverable(
+                        assignmentId: widget.assignment.assignmentId,
+                        fileName: nameCtrl.text.trim(),
+                        fileType: fileType,
+                        fileStage: fileStage.toLowerCase(),
+                        uploadedBy: widget.currentUser.name,
+                        isInternal: isInternal,
+                      );
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+                      if (!mounted) return;
+                      if (ok) {
+                        _loadDetail();
+                        widget.onStatusChanged?.call();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Deliverable file uploaded successfully!'), backgroundColor: AppTheme.success),
+                        );
+                      }
+                    },
+              child: uploading
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Upload File'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _toggleFileStage(AssignmentFileModel f) async {
+    final nextStage = f.fileStage.toLowerCase() == 'complete' ? 'draft' : 'complete';
+    final ok = await ApiService.toggleFileStage(fileId: f.id, newStage: nextStage);
+    if (ok) {
+      _loadDetail();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('File access updated to ${nextStage.toUpperCase()}'), backgroundColor: AppTheme.success),
+        );
+      }
+    }
+  }
+
+  void _deleteFile(AssignmentFileModel f) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete File'),
+        content: Text('Remove file "${f.fileName}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    final ok = await ApiService.deleteFile(fileId: f.id);
+    if (ok) {
+      _loadDetail();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('File removed.'), backgroundColor: AppTheme.success),
+        );
+      }
+    }
+  }
+
   void _adminRelease() async {
     setState(() => _actionLoading = true);
     final ok = await ApiService.adminReleaseSolution(
@@ -567,26 +818,28 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
               ),
               Row(
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      InvoiceViewDialog.show(
-                        context,
-                        assignment: a,
-                        currentUser: widget.currentUser,
-                        onPaymentSuccess: () {
-                          _loadDetail();
-                          widget.onStatusChanged?.call();
-                        },
-                      );
-                    },
-                    icon: const Icon(Icons.receipt_long_rounded, size: 14),
-                    label: const Text('Invoice', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      visualDensity: VisualDensity.compact,
+                  if (!widget.currentUser.isAllocator) ...[
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        InvoiceViewDialog.show(
+                          context,
+                          assignment: a,
+                          currentUser: widget.currentUser,
+                          onPaymentSuccess: () {
+                            _loadDetail();
+                            widget.onStatusChanged?.call();
+                          },
+                        );
+                      },
+                      icon: const Icon(Icons.receipt_long_rounded, size: 14),
+                      label: const Text('Invoice', style: TextStyle(fontSize: 11)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
+                    const SizedBox(width: 8),
+                  ],
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -637,14 +890,38 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
                       _buildSpecTile('Deadline', a.deadline.split(' ').first, Icons.calendar_today_rounded),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      _buildSpecTile('Total Price', '${a.currency} ${total.toStringAsFixed(2)}', Icons.payments_outlined),
-                      _buildSpecTile('Paid to Date', '${a.currency} ${a.paidAmount.toStringAsFixed(2)}', Icons.check_circle_outline),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
+                  if (widget.currentUser.isAllocator) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.shield_outlined, size: 18, color: Colors.amber),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Financials & Student PII masked in compliance with Allocator RBAC.',
+                              style: TextStyle(fontSize: 11, color: Colors.brown, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ] else ...[
+                    Row(
+                      children: [
+                        _buildSpecTile('Total Price', '${a.currency} ${total.toStringAsFixed(2)}', Icons.payments_outlined),
+                        _buildSpecTile('Paid to Date', '${a.currency} ${a.paidAmount.toStringAsFixed(2)}', Icons.check_circle_outline),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Brief Instructions
                   if (a.instructions.isNotEmpty) ...[
@@ -664,21 +941,38 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
                   ],
 
                   // Verified Completed Deliverables (Solution Files)
-                  if (solutionFiles.isNotEmpty) ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.verified_rounded, color: AppTheme.success, size: 18),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Verified Solution Deliverables (${solutionFiles.length})',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.verified_rounded, color: AppTheme.success, size: 18),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Solution Deliverables (${solutionFiles.length})',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                          ),
+                        ],
+                      ),
+                      if (widget.currentUser.isAllocator || widget.currentUser.isAdmin)
+                        TextButton.icon(
+                          onPressed: _showUploadDeliverableDialog,
+                          icon: const Icon(Icons.upload_file_rounded, size: 16),
+                          label: const Text('Upload File', style: TextStyle(fontSize: 12)),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (solutionFiles.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: AppTheme.bg, borderRadius: BorderRadius.circular(8)),
+                      child: const Text('No solution deliverables uploaded yet.', style: TextStyle(fontSize: 12, color: AppTheme.textDim)),
+                    )
+                  else
                     ...solutionFiles.map((f) => _buildFileTile(f, isSolution: true)),
-                    const SizedBox(height: 16),
-                  ],
+                  const SizedBox(height: 16),
 
                   // Student Brief Materials
                   if (briefFiles.isNotEmpty) ...[
@@ -770,15 +1064,29 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
 
                   // Allocator QA Review Controls
                   if (widget.currentUser.isAllocator) ...[
-                    const Text('Allocator QA Control', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Text('Allocator Workflow Control', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primary)),
                     const SizedBox(height: 8),
+
+                    // Allocator Workflow Dialog
+                    ElevatedButton.icon(
+                      onPressed: _showAllocatorWorkflowDialog,
+                      icon: const Icon(Icons.tune_rounded, size: 18),
+                      label: const Text('Workflow & Allocation (Expert, Status, Notes)'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 44),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
                     Row(
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
                             onPressed: _actionLoading ? null : _allocatorApprove,
                             icon: const Icon(Icons.check_circle_rounded, size: 18),
-                            label: const Text('Approve QA (To Admin)'),
+                            label: const Text('Approve QA'),
                             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
                           ),
                         ),
@@ -996,6 +1304,39 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
             icon: const Icon(Icons.download_rounded, size: 20, color: AppTheme.primary),
             onPressed: () => _openFile(f.path),
           ),
+          if (widget.currentUser.isAllocator || widget.currentUser.isAdmin)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded, size: 18, color: AppTheme.textDim),
+              onSelected: (val) {
+                if (val == 'toggle') {
+                  _toggleFileStage(f);
+                } else if (val == 'delete') {
+                  _deleteFile(f);
+                }
+              },
+              itemBuilder: (ctx) => [
+                PopupMenuItem(
+                  value: 'toggle',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.swap_horiz_rounded, size: 16, color: AppTheme.primary),
+                      const SizedBox(width: 8),
+                      Text(f.fileStage.toLowerCase() == 'complete' ? 'Set as Draft' : 'Set as Complete', style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, size: 16, color: AppTheme.danger),
+                      SizedBox(width: 8),
+                      Text('Delete File', style: TextStyle(fontSize: 12, color: AppTheme.danger)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );

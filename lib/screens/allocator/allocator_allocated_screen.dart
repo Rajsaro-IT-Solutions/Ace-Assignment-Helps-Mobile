@@ -18,8 +18,15 @@ class _AllocatorAllocatedScreenState extends State<AllocatorAllocatedScreen> {
   bool _loading = true;
   List<AssignmentModel> _activeAllocations = [];
   String _statusFilter = 'All';
+  final _searchCtrl = TextEditingController();
 
-  final List<String> _filters = ['All', 'Allocated', 'In Progress', 'Quality Check'];
+  final List<String> _filters = ['All', 'Allocated', 'In Progress', 'Quality Check', 'Revision'];
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -72,29 +79,46 @@ class _AllocatorAllocatedScreenState extends State<AllocatorAllocatedScreen> {
       ),
       body: Column(
         children: [
-          // Filter Chips
+          // Search and Filters
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.all(16),
             color: Colors.white,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _filters.map((f) {
-                  final isSel = _statusFilter == f;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(f, style: TextStyle(fontSize: 12, fontWeight: isSel ? FontWeight.bold : FontWeight.normal)),
-                      selected: isSel,
-                      selectedColor: AppTheme.primaryLight,
-                      onSelected: (_) {
-                        setState(() => _statusFilter = f);
-                        _fetchAllocations();
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchCtrl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    hintText: 'Search active tasks by ID, subject, or title...',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    filled: true,
+                    fillColor: AppTheme.bg,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.border)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _filters.map((f) {
+                      final isSel = _statusFilter == f;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(f, style: TextStyle(fontSize: 12, fontWeight: isSel ? FontWeight.bold : FontWeight.normal)),
+                          selected: isSel,
+                          selectedColor: AppTheme.primaryLight,
+                          onSelected: (_) {
+                            setState(() => _statusFilter = f);
+                            _fetchAllocations();
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
             ),
           ),
           const Divider(height: 1),
@@ -102,8 +126,19 @@ class _AllocatorAllocatedScreenState extends State<AllocatorAllocatedScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : _activeAllocations.isEmpty
-                    ? Center(
+                : () {
+                    final q = _searchCtrl.text.trim().toLowerCase();
+                    final displayList = _activeAllocations.where((a) {
+                      if (q.isNotEmpty) {
+                        return a.assignmentId.toLowerCase().contains(q) ||
+                            a.title.toLowerCase().contains(q) ||
+                            a.subject.toLowerCase().contains(q);
+                      }
+                      return true;
+                    }).toList();
+
+                    if (displayList.isEmpty) {
+                      return Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -112,12 +147,14 @@ class _AllocatorAllocatedScreenState extends State<AllocatorAllocatedScreen> {
                             const Text('No active assignments in this filter', style: TextStyle(color: AppTheme.textMuted, fontSize: 14)),
                           ],
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _activeAllocations.length,
-                        itemBuilder: (ctx, i) {
-                          final a = _activeAllocations[i];
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: displayList.length,
+                      itemBuilder: (ctx, i) {
+                        final a = displayList[i];
                           final slaColor = _getSlaColor(a.sla);
 
                           return Card(
@@ -216,9 +253,10 @@ class _AllocatorAllocatedScreenState extends State<AllocatorAllocatedScreen> {
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
+                        );
+                      },
+                    );
+                  }(),
           ),
         ],
       ),

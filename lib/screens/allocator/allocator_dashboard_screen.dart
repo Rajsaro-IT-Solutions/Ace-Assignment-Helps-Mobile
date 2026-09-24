@@ -10,7 +10,10 @@ import '../../widgets/stat_card.dart';
 import '../common/assignment_detail_sheet.dart';
 import '../login_screen.dart';
 import 'allocator_allocated_screen.dart';
+import 'allocator_completed_screen.dart';
+import 'allocator_email_center_screen.dart';
 import 'allocator_experts_screen.dart';
+import 'allocator_notifications_screen.dart';
 import 'allocator_pending_screen.dart';
 import 'allocator_qa_screen.dart';
 
@@ -117,6 +120,26 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
     _fetchData();
   }
 
+  void _openCompletedLog() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AllocatorCompletedScreen(user: widget.user)),
+    );
+    _fetchData();
+  }
+
+  void _openEmailCenter() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AllocatorEmailCenterScreen(user: widget.user)),
+    );
+  }
+
+  void _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AllocatorNotificationsScreen(user: widget.user)),
+    );
+    _fetchData();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,6 +159,11 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Notification Alerts',
+            icon: const Icon(Icons.notifications_outlined, color: AppTheme.primary),
+            onPressed: _openNotifications,
+          ),
           IconButton(
             tooltip: 'QA Verification Queue',
             icon: const Icon(Icons.verified_rounded, color: AppTheme.success),
@@ -241,6 +269,14 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.timer_outlined, color: AppTheme.primary),
+            title: const Text('Active Production Queue'),
+            onTap: () {
+              Navigator.pop(context);
+              _openAllocatedQueue();
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.verified_rounded, color: AppTheme.success),
             title: const Text('QA Verification Queue'),
             onTap: () {
@@ -249,11 +285,11 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.timer_outlined, color: AppTheme.primary),
-            title: const Text('Production SLA Queue'),
+            leading: const Icon(Icons.task_alt_rounded, color: AppTheme.success),
+            title: const Text('Completed Log'),
             onTap: () {
               Navigator.pop(context);
-              _openAllocatedQueue();
+              _openCompletedLog();
             },
           ),
           ListTile(
@@ -262,6 +298,22 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
             onTap: () {
               Navigator.pop(context);
               _openExpertRoster();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.mail_outline_rounded, color: AppTheme.secondary),
+            title: const Text('Email Center'),
+            onTap: () {
+              Navigator.pop(context);
+              _openEmailCenter();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.notifications_outlined, color: AppTheme.primary),
+            title: const Text('Notifications & Alerts'),
+            onTap: () {
+              Navigator.pop(context);
+              _openNotifications();
             },
           ),
           const Divider(),
@@ -281,9 +333,9 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
   Widget _buildOverview() {
     final stats = _dashboard?.stats ?? {};
     final unallocated = stats['unallocated']?.toString() ?? '0';
-    final inProgress = stats['in_progress']?.toString() ?? '0';
-    final underQa = stats['under_qa']?.toString() ?? '0';
+    final urgentSla = stats['urgent_sla']?.toString() ?? '0';
     final activeExperts = stats['active_experts']?.toString() ?? '0';
+    final completed = stats['completed']?.toString() ?? '0';
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -291,6 +343,30 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // RBAC Privacy Banner
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade200),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.shield_outlined, size: 20, color: Colors.amber),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Student contact details (email, phone, address) and payment information are strictly masked in compliance with system RBAC.',
+                    style: TextStyle(fontSize: 11, color: Colors.brown, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
           // Banner
           Container(
             width: double.infinity,
@@ -340,9 +416,9 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
                     ),
                     const SizedBox(width: 8),
                     OutlinedButton.icon(
-                      onPressed: _openExpertRoster,
-                      icon: const Icon(Icons.people_outline, size: 16, color: Colors.white),
-                      label: const Text('Roster', style: TextStyle(color: Colors.white)),
+                      onPressed: _openEmailCenter,
+                      icon: const Icon(Icons.mail_outline_rounded, size: 16, color: Colors.white),
+                      label: const Text('Email Center', style: TextStyle(color: Colors.white)),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white38)),
                     ),
                   ],
@@ -352,27 +428,28 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
           ),
           const SizedBox(height: 20),
 
-          // KPI Cards
+          // KPI Cards matching web command center
           Row(
             children: [
               Expanded(
                 child: StatCard(
-                  title: 'Unallocated',
+                  title: 'Pending Allocation',
                   value: unallocated,
                   icon: Icons.hourglass_top_rounded,
                   color: AppTheme.warning,
-                  subtitle: 'Pending assignment',
+                  subtitle: 'Awaiting expert match',
                   onTap: _openPendingQueue,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: StatCard(
-                  title: 'In Progress',
-                  value: inProgress,
-                  icon: Icons.autorenew_rounded,
-                  color: AppTheme.primary,
-                  subtitle: 'Being written by experts',
+                  title: 'Urgent SLA Alerts',
+                  value: urgentSla,
+                  icon: Icons.alarm_on_rounded,
+                  color: AppTheme.danger,
+                  subtitle: 'Due within 24 hours',
+                  onTap: _openAllocatedQueue,
                 ),
               ),
             ],
@@ -382,22 +459,23 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
             children: [
               Expanded(
                 child: StatCard(
-                  title: 'Ready for QA',
-                  value: underQa,
-                  icon: Icons.fact_check_outlined,
-                  color: AppTheme.accent,
-                  subtitle: 'Solutions submitted',
+                  title: 'Experts Available',
+                  value: activeExperts,
+                  icon: Icons.groups_outlined,
+                  color: AppTheme.primary,
+                  subtitle: 'PhD active specialists',
+                  onTap: _openExpertRoster,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: StatCard(
-                  title: 'Expert Roster',
-                  value: activeExperts,
-                  icon: Icons.groups_outlined,
+                  title: 'Completed Queue',
+                  value: completed,
+                  icon: Icons.task_alt_rounded,
                   color: AppTheme.success,
-                  subtitle: 'Active PhD specialists',
-                  onTap: _openExpertRoster,
+                  subtitle: 'Verified solutions',
+                  onTap: _openCompletedLog,
                 ),
               ),
             ],
