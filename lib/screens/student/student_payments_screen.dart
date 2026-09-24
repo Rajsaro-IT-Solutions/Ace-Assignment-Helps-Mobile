@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../core/models/user_model.dart';
 import '../../core/models/portal_models.dart';
+import '../../core/models/assignment_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
+import 'invoice_view_dialog.dart';
 
 class StudentPaymentsScreen extends StatefulWidget {
   final UserModel user;
@@ -249,6 +251,36 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                                       ),
                                     ),
                                   ],
+                                ),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      final dummyAsm = AssignmentModel(
+                                        assignmentId: p.assignmentId,
+                                        studentId: p.studentId,
+                                        title: p.assignmentTitle,
+                                        subject: p.assignmentSubject,
+                                        assignmentType: 'Assignment Order',
+                                        status: p.status,
+                                        deadline: p.paymentDate,
+                                        wordCount: 1000,
+                                        price: p.amount,
+                                        finalPrice: p.amount,
+                                        currency: p.currency,
+                                        paidAmount: p.amount,
+                                      );
+                                      InvoiceViewDialog.show(
+                                        context,
+                                        assignment: dummyAsm,
+                                        currentUser: widget.user,
+                                        onPaymentSuccess: _loadPayments,
+                                      );
+                                    },
+                                    icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                                    label: const Text('View Tax Invoice & Breakdown', style: TextStyle(fontSize: 12)),
+                                  ),
                                 ),
                               ],
                             ),

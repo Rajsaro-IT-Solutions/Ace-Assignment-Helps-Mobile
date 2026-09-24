@@ -5,6 +5,7 @@ class UserModel {
   final String role;
   final String phone;
   final String country;
+  final String university;
 
   UserModel({
     required this.id,
@@ -13,6 +14,7 @@ class UserModel {
     required this.role,
     this.phone = '',
     this.country = '',
+    this.university = '',
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class UserModel {
       role: json['role']?.toString() ?? 'Student',
       phone: json['phone']?.toString() ?? '',
       country: json['country']?.toString() ?? '',
+      university: json['university']?.toString() ?? '',
     );
   }
 
@@ -34,6 +37,7 @@ class UserModel {
       'role': role,
       'phone': phone,
       'country': country,
+      'university': university,
     };
   }
 

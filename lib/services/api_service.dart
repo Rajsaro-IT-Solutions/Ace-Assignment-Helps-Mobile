@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/config/api_config.dart';
 import '../core/models/assignment_model.dart';
 import '../core/models/dashboard_stats_model.dart';
 import '../core/models/portal_models.dart';
+import '../core/models/user_model.dart';
+import 'db_service.dart';
 
 class ApiResponse<T> {
   final bool success;
@@ -36,20 +39,34 @@ class ApiService {
       final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
       final json = jsonDecode(response.body);
 
-      return ApiResponse(
-        success: json['success'] == true,
-        message: json['message']?.toString() ?? '',
-        data: json['data'] is Map<String, dynamic> ? json['data'] : null,
-        statusCode: response.statusCode,
-      );
+      if (json['success'] == true) {
+        return ApiResponse(
+          success: true,
+          message: json['message']?.toString() ?? 'Online',
+          data: json['data'] is Map<String, dynamic> ? json['data'] : null,
+          statusCode: response.statusCode,
+        );
+      }
     } catch (e) {
-      if (kDebugMode) print('checkHealth error: $e');
+      if (kDebugMode) print('checkHealth HTTP error, trying direct DB: $e');
+    }
+
+    // Direct MySQL Fallback to AWS RDS
+    final dbOk = await DirectDbService.checkHealth();
+    if (dbOk) {
       return ApiResponse(
-        success: false,
-        message: 'Could not connect to server at ${ApiConfig.baseUrl}. Please check network connection.',
-        statusCode: 0,
+        success: true,
+        message: 'Connected directly to AWS RDS MySQL',
+        data: {'database': 'connected (AWS RDS MySQL)'},
+        statusCode: 200,
       );
     }
+
+    return ApiResponse(
+      success: false,
+      message: 'Could not connect to database on AWS RDS.',
+      statusCode: 0,
+    );
   }
 
   /// Unified Portal Login with automatic role detection (Student, Allocator, Expert, Admin)
@@ -72,20 +89,34 @@ class ApiService {
       ).timeout(timeoutDuration);
 
       final json = jsonDecode(response.body);
-      return ApiResponse(
-        success: json['success'] == true,
-        message: json['message']?.toString() ?? '',
-        data: json['data'] is Map<String, dynamic> ? json['data'] : null,
-        statusCode: response.statusCode,
-      );
+      if (json['success'] == true) {
+        return ApiResponse(
+          success: true,
+          message: json['message']?.toString() ?? 'Login successful!',
+          data: json['data'] is Map<String, dynamic> ? json['data'] : null,
+          statusCode: response.statusCode,
+        );
+      }
     } catch (e) {
-      if (kDebugMode) print('login error: $e');
+      if (kDebugMode) print('login HTTP error, trying direct MySQL: $e');
+    }
+
+    // Direct MySQL fallback to AWS RDS
+    final directRes = await DirectDbService.login(email: email, password: password, role: role);
+    if (directRes != null && directRes['success'] == true) {
       return ApiResponse(
-        success: false,
-        message: 'Connection error ($e). Tap the settings icon in the top right to verify server connection.',
-        statusCode: 0,
+        success: true,
+        message: directRes['message']?.toString() ?? 'Login successful!',
+        data: directRes['data'] as Map<String, dynamic>?,
+        statusCode: 200,
       );
     }
+
+    return ApiResponse(
+      success: false,
+      message: 'Invalid credentials or user account not found.',
+      statusCode: 0,
+    );
   }
 
   /// Get role-specific Dashboard stats & recent assignments
@@ -105,9 +136,10 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getDashboard error: $e');
+      if (kDebugMode) print('getDashboard HTTP error, trying direct MySQL: $e');
     }
-    return null;
+
+    return await DirectDbService.getDashboard(role: role, userId: userId);
   }
 
   /// Get assignments list with optional status filter
@@ -131,9 +163,10 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getAssignments error: $e');
+      if (kDebugMode) print('getAssignments HTTP error, trying direct MySQL: $e');
     }
-    return [];
+
+    return await DirectDbService.getAssignments(role: role, userId: userId, status: status);
   }
 
   /// Get full assignment details, files, and notes
@@ -150,9 +183,10 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getAssignmentDetail error: $e');
+      if (kDebugMode) print('getAssignmentDetail HTTP error, trying direct MySQL: $e');
     }
-    return null;
+
+    return await DirectDbService.getAssignmentDetail(assignmentId);
   }
 
   /// Update assignment status
@@ -176,11 +210,12 @@ class ApiService {
         }),
       ).timeout(timeoutDuration);
       final json = jsonDecode(response.body);
-      return json['success'] == true;
+      if (json['success'] == true) return true;
     } catch (e) {
-      if (kDebugMode) print('updateStatus error: $e');
-      return false;
+      if (kDebugMode) print('updateStatus HTTP error, trying direct MySQL: $e');
     }
+
+    return await DirectDbService.updateStatus(assignmentId: assignmentId, status: status);
   }
 
   /// Get user notifications
@@ -348,9 +383,9 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getExperts error: $e');
+      if (kDebugMode) print('getExperts HTTP error, trying direct MySQL: $e');
     }
-    return [];
+    return await DirectDbService.getExpertsList();
   }
 
   /// Get list of registered students (Admin)
@@ -365,9 +400,9 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getStudents error: $e');
+      if (kDebugMode) print('getStudents HTTP error, trying direct MySQL: $e');
     }
-    return [];
+    return await DirectDbService.getStudentsList();
   }
 
   /// Get payments / invoices list (Student & Admin)
@@ -385,9 +420,9 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getPayments error: $e');
+      if (kDebugMode) print('getPayments HTTP error, trying direct MySQL: $e');
     }
-    return [];
+    return await DirectDbService.getPaymentsList();
   }
 
   /// Get discount coupons (Admin)
@@ -402,9 +437,9 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getCoupons error: $e');
+      if (kDebugMode) print('getCoupons HTTP error, trying direct MySQL: $e');
     }
-    return [];
+    return await DirectDbService.getCouponsList();
   }
 
   /// Create a new coupon (Admin)
@@ -448,9 +483,9 @@ class ApiService {
         }
       }
     } catch (e) {
-      if (kDebugMode) print('getCourses error: $e');
+      if (kDebugMode) print('getCourses HTTP error, trying direct MySQL: $e');
     }
-    return [];
+    return await DirectDbService.getCoursesList();
   }
 
   /// Get support tickets
@@ -594,4 +629,1019 @@ class ApiService {
       return false;
     }
   }
+
+  /// Student Self-Registration
+  static Future<ApiResponse<UserModel>> registerStudent({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+    required String country,
+    required String university,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'register',
+          'name': name.trim(),
+          'email': email.trim(),
+          'password': password.trim(),
+          'phone': phone.trim(),
+          'country': country.trim(),
+          'university': university.trim(),
+        }),
+      ).timeout(timeoutDuration);
+
+      final json = jsonDecode(response.body);
+      if (json['success'] == true && json['data'] is Map && (json['data'] as Map)['user'] is Map) {
+        return ApiResponse(
+          success: true,
+          message: json['message']?.toString() ?? 'Registration successful!',
+          data: UserModel.fromJson(Map<String, dynamic>.from((json['data'] as Map)['user'])),
+          statusCode: response.statusCode,
+        );
+      }
+      return ApiResponse(
+        success: false,
+        message: json['message']?.toString() ?? 'Registration failed',
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      return ApiResponse(success: false, message: 'Connection error: $e', statusCode: 0);
+    }
+  }
+
+  /// Upload assignment file (multipart)
+  static Future<ApiResponse<List<dynamic>>> uploadAssignmentFile({
+    required String assignmentId,
+    required String filePath,
+    required String fileName,
+    String fileStage = 'brief',
+    String uploadedBy = 'Student',
+    bool isInternal = false,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll({
+        'ngrok-skip-browser-warning': 'true',
+        'User-Agent': 'AAH-Mobile-App/1.0',
+      });
+      request.fields['action'] = 'upload_file';
+      request.fields['assignment_id'] = assignmentId;
+      request.fields['file_stage'] = fileStage;
+      request.fields['uploaded_by'] = uploadedBy;
+      request.fields['is_internal'] = isInternal ? '1' : '0';
+
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        filePath,
+        filename: fileName,
+      ));
+
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+      final response = await http.Response.fromStream(streamedResponse);
+      final json = jsonDecode(response.body);
+
+      return ApiResponse(
+        success: json['success'] == true,
+        message: json['message']?.toString() ?? '',
+        data: json['data'] is Map && (json['data'] as Map)['files'] is List ? (json['data'] as Map)['files'] as List : null,
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      if (kDebugMode) print('uploadAssignmentFile error: $e');
+      return ApiResponse(success: false, message: 'Upload failed: $e', statusCode: 0);
+    }
+  }
+
+  /// Delete assignment file
+  static Future<bool> deleteAssignmentFile(String fileId) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'delete_file',
+          'file_id': fileId,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Submit revision request
+  static Future<ApiResponse<void>> requestRevision({
+    required String assignmentId,
+    required String studentId,
+    required String instructions,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'request_revision',
+          'assignment_id': assignmentId,
+          'student_id': studentId,
+          'instructions': instructions,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return ApiResponse(
+        success: json['success'] == true,
+        message: json['message']?.toString() ?? '',
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      return ApiResponse(success: false, message: 'Revision request failed: $e', statusCode: 0);
+    }
+  }
+
+  /// Submit refund request
+  static Future<ApiResponse<void>> requestRefund({
+    required String assignmentId,
+    required String studentId,
+    required String reason,
+    required String details,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'request_refund',
+          'assignment_id': assignmentId,
+          'student_id': studentId,
+          'reason': reason,
+          'details': details,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return ApiResponse(
+        success: json['success'] == true,
+        message: json['message']?.toString() ?? '',
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      return ApiResponse(success: false, message: 'Refund request failed: $e', statusCode: 0);
+    }
+  }
+
+  /// Get live chat messages
+  static Future<List<ChatMessageModel>> getChatMessages({
+    String? studentId,
+    String? assignmentId,
+  }) async {
+    try {
+      String query = '${ApiConfig.portalApiEndpoint}?action=get_chat';
+      if (studentId != null && studentId.isNotEmpty) {
+        query += '&student_id=${Uri.encodeComponent(studentId)}';
+      }
+      if (assignmentId != null && assignmentId.isNotEmpty) {
+        query += '&assignment_id=${Uri.encodeComponent(assignmentId)}';
+      }
+      final response = await http.get(Uri.parse(query), headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is List) {
+          return (json['data'] as List)
+              .map((item) => ChatMessageModel.fromJson(item))
+              .toList();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getChatMessages error: $e');
+    }
+    return [];
+  }
+
+  /// Send live chat message
+  static Future<ChatMessageModel?> sendChatMessage({
+    required String senderId,
+    required String senderRole,
+    required String senderName,
+    required String studentId,
+    String? assignmentId,
+    required String message,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'send_chat',
+          'sender_id': senderId,
+          'sender_role': senderRole,
+          'sender_name': senderName,
+          'student_id': studentId,
+          'assignment_id': assignmentId ?? '',
+          'message': message,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      if (json['success'] == true && json['data'] is Map) {
+        return ChatMessageModel.fromJson(Map<String, dynamic>.from(json['data']));
+      }
+    } catch (e) {
+      if (kDebugMode) print('sendChatMessage error: $e');
+    }
+    return null;
+  }
+
+  /// Allocator Approve QA
+  static Future<bool> allocatorApproveQa({
+    required String assignmentId,
+    required String allocatorId,
+    required String allocatorName,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'allocator_approve_qa',
+          'assignment_id': assignmentId,
+          'allocator_id': allocatorId,
+          'allocator_name': allocatorName,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Allocator Request Revision from Expert
+  static Future<bool> allocatorRequestRevision({
+    required String assignmentId,
+    required String allocatorId,
+    required String allocatorName,
+    required String instructions,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'allocator_request_revision',
+          'assignment_id': assignmentId,
+          'allocator_id': allocatorId,
+          'allocator_name': allocatorName,
+          'instructions': instructions,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Admin Final Solution Release
+  static Future<bool> adminReleaseSolution({
+    required String assignmentId,
+    required String adminId,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'admin_release_solution',
+          'assignment_id': assignmentId,
+          'admin_id': adminId,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Get Admins List
+  static Future<List<AdminStaffModel>> getAdmins() async {
+    try {
+      final uri = Uri.parse('${ApiConfig.portalApiEndpoint}?action=admins_list');
+      final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is List) {
+          return (json['data'] as List)
+              .map((item) => AdminStaffModel.fromJson(item))
+              .toList();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getAdmins HTTP error, trying direct MySQL: $e');
+    }
+    return await DirectDbService.getAdminsList();
+  }
+
+  /// Create Admin
+  static Future<bool> createAdmin({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'admin_create',
+          'name': name,
+          'email': email,
+          'password': password,
+          'phone': phone,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Delete Admin
+  static Future<bool> deleteAdmin(String adminId) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'admin_delete',
+          'admin_id': adminId,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Get Allocators List
+  static Future<List<AllocatorStaffModel>> getAllocators() async {
+    try {
+      final uri = Uri.parse('${ApiConfig.portalApiEndpoint}?action=allocators_list');
+      final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is List) {
+          return (json['data'] as List)
+              .map((item) => AllocatorStaffModel.fromJson(item))
+              .toList();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getAllocators HTTP error, trying direct MySQL: $e');
+    }
+    return await DirectDbService.getAllocatorsList();
+  }
+
+  /// Create Allocator
+  static Future<bool> createAllocator({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'allocator_create',
+          'name': name,
+          'email': email,
+          'password': password,
+          'phone': phone,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Delete Allocator
+  static Future<bool> deleteAllocator(String allocatorId) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'allocator_delete',
+          'allocator_id': allocatorId,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Create Expert
+  static Future<bool> createExpert({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+    required String subjects,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'expert_create',
+          'name': name,
+          'email': email,
+          'password': password,
+          'phone': phone,
+          'subjects': subjects,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Delete Expert
+  static Future<bool> deleteExpert(String expertId) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'expert_delete',
+          'expert_id': expertId,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Update Expert Payout Details
+  static Future<bool> updateExpertPayout({
+    required String expertId,
+    String payoutInfo = '',
+    String bankName = '',
+    String accountHolder = '',
+    String accountNumber = '',
+    String ifscSwift = '',
+    String paypalEmail = '',
+  }) async {
+    try {
+      final infoString = payoutInfo.isNotEmpty
+          ? payoutInfo
+          : 'Bank: $bankName | Beneficiary: $accountHolder | Acc: $accountNumber | IFSC: $ifscSwift | PayPal: $paypalEmail';
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'expert_update_payout',
+          'expert_id': expertId,
+          'payout_info': infoString,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Convenience wrapper to upload file directly
+  static Future<bool> uploadFile({
+    required String assignmentId,
+    required File file,
+    String fileStage = 'brief',
+    String uploadedBy = 'User',
+    bool isInternal = false,
+  }) async {
+    final fileName = file.path.split('/').last;
+    final res = await uploadAssignmentFile(
+      assignmentId: assignmentId,
+      filePath: file.path,
+      fileName: fileName,
+      fileStage: fileStage,
+      uploadedBy: uploadedBy,
+      isInternal: isInternal,
+    );
+    return res.success;
+  }
+
+  /// Convenience wrapper to get assignment chat messages
+  static Future<List<ChatMessageModel>> getChat(String assignmentId) =>
+      getChatMessages(assignmentId: assignmentId);
+
+  /// Convenience wrapper to send assignment chat message
+  static Future<bool> sendChat({
+    required String assignmentId,
+    required String senderId,
+    required String senderRole,
+    required String senderName,
+    required String message,
+    String? studentId,
+    String? expertId,
+  }) async {
+    final res = await sendChatMessage(
+      senderId: senderId,
+      senderRole: senderRole,
+      senderName: senderName,
+      studentId: studentId ?? senderId,
+      assignmentId: assignmentId,
+      message: message,
+    );
+    return res != null;
+  }
+
+  /// Get System Audit Logs
+  static Future<List<AuditLogModel>> getAuditLogs() async {
+    try {
+      final uri = Uri.parse('${ApiConfig.portalApiEndpoint}?action=audit_logs');
+      final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is List) {
+          return (json['data'] as List)
+              .map((item) => AuditLogModel.fromJson(item))
+              .toList();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getAuditLogs HTTP error, trying direct MySQL: $e');
+    }
+    return await DirectDbService.getAuditLogs();
+  }
+
+  /// Get Blogs List
+  static Future<List<BlogModel>> getBlogs() async {
+    try {
+      final uri = Uri.parse('${ApiConfig.portalApiEndpoint}?action=blogs_list');
+      final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is List) {
+          return (json['data'] as List)
+              .map((item) => BlogModel.fromJson(item))
+              .toList();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getBlogs HTTP error, trying direct MySQL: $e');
+    }
+    return await DirectDbService.getBlogsList();
+  }
+
+  /// Create Blog
+  static Future<bool> createBlog({
+    required String title,
+    required String excerpt,
+    required String category,
+    required String author,
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'blog_create',
+          'title': title,
+          'excerpt': excerpt,
+          'category': category,
+          'author': author,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Delete Blog
+  static Future<bool> deleteBlog(int blogId) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'blog_delete',
+          'id': blogId,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Get Site Settings
+  static Future<Map<String, dynamic>?> getSiteSettings() async {
+    try {
+      final uri = Uri.parse('${ApiConfig.portalApiEndpoint}?action=site_settings');
+      final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is Map<String, dynamic>) {
+          return json['data'];
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getSiteSettings HTTP error, trying direct MySQL: $e');
+    }
+    return await DirectDbService.getSiteSettings();
+  }
+
+  /// Update Site Settings
+  static Future<bool> updateSiteSettings(Map<String, dynamic> settings) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final payload = Map<String, dynamic>.from(settings);
+      payload['action'] = 'site_settings';
+      payload['save_settings'] = '1';
+
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode(payload),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return json['success'] == true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Process Partial / Remaining Payment
+  static Future<ApiResponse<void>> processPartialPayment({
+    required String assignmentId,
+    required String studentId,
+    required double amount,
+    String paymentMethod = 'Stripe / Online',
+    String currency = 'USD',
+  }) async {
+    try {
+      final uri = Uri.parse(ApiConfig.portalApiEndpoint);
+      final response = await http.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'process_partial_payment',
+          'assignment_id': assignmentId,
+          'student_id': studentId,
+          'amount': amount,
+          'payment_method': paymentMethod,
+          'currency': currency,
+        }),
+      ).timeout(timeoutDuration);
+      final json = jsonDecode(response.body);
+      return ApiResponse(
+        success: json['success'] == true,
+        message: json['message']?.toString() ?? '',
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      return ApiResponse(success: false, message: 'Payment processing failed: $e', statusCode: 0);
+    }
+  }
+
+  /// Get Invoice Detail
+  static Future<Map<String, dynamic>?> getInvoiceDetail(String assignmentId) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiConfig.portalApiEndpoint}?action=invoice_detail&assignment_id=${Uri.encodeComponent(assignmentId)}',
+      );
+      final response = await http.get(uri, headers: _headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] is Map<String, dynamic>) {
+          return json['data'];
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('getInvoiceDetail error: $e');
+    }
+    return null;
+  }
+
+  // ================= ADMIN PORTAL OPERATIONS ================= //
+
+  /// Courses CRUD
+  static Future<bool> createCourse({
+    required String title,
+    required String category,
+    String icon = 'fa-book-open',
+    String description = '',
+    String topics = '',
+    String status = 'Active',
+  }) async {
+    return await DirectDbService.createCourse(
+      title: title,
+      category: category,
+      icon: icon,
+      description: description,
+      topics: topics,
+      status: status,
+    );
+  }
+
+  static Future<bool> updateCourse({
+    required String courseId,
+    required String title,
+    required String category,
+    String icon = 'fa-book-open',
+    String description = '',
+    String topics = '',
+    String status = 'Active',
+  }) async {
+    return await DirectDbService.updateCourse(
+      courseId: courseId,
+      title: title,
+      category: category,
+      icon: icon,
+      description: description,
+      topics: topics,
+      status: status,
+    );
+  }
+
+  static Future<bool> deleteCourse(String courseId) async {
+    return await DirectDbService.deleteCourse(courseId);
+  }
+
+  static Future<bool> toggleCourseStatus(String courseId, String newStatus) async {
+    return await DirectDbService.toggleCourseStatus(courseId, newStatus);
+  }
+
+  /// Students CRUD
+  static Future<bool> createStudent({
+    required String name,
+    required String email,
+    required String password,
+    String phone = '',
+    String country = 'United Kingdom',
+    String university = '',
+    String course = '',
+    String status = 'Active',
+  }) async {
+    return await DirectDbService.createStudent(
+      name: name,
+      email: email,
+      password: password,
+      phone: phone,
+      country: country,
+      university: university,
+      course: course,
+      status: status,
+    );
+  }
+
+  static Future<bool> updateStudent({
+    required String studentId,
+    required String name,
+    String phone = '',
+    String country = '',
+    String university = '',
+    String course = '',
+    String? password,
+    String status = 'Active',
+  }) async {
+    return await DirectDbService.updateStudent(
+      studentId: studentId,
+      name: name,
+      phone: phone,
+      country: country,
+      university: university,
+      course: course,
+      password: password,
+      status: status,
+    );
+  }
+
+  static Future<bool> deleteStudent(String studentId) async {
+    return await DirectDbService.deleteStudent(studentId);
+  }
+
+  /// Experts CRUD
+  static Future<bool> updateExpert({
+    required String expertId,
+    required String name,
+    String phone = '',
+    String subjects = '',
+    String status = 'Available',
+    String? password,
+  }) async {
+    return await DirectDbService.updateExpert(
+      expertId: expertId,
+      name: name,
+      phone: phone,
+      subjects: subjects,
+      status: status,
+      password: password,
+    );
+  }
+
+  static Future<bool> toggleExpertStatus(String expertId, String status) async {
+    return await DirectDbService.toggleExpertStatus(expertId, status);
+  }
+
+  /// Staff CRUD
+  static Future<bool> updateAllocator({
+    required String allocatorId,
+    required String name,
+    String phone = '',
+    String status = 'Active',
+    String? password,
+  }) async {
+    return await DirectDbService.updateAllocator(
+      allocatorId: allocatorId,
+      name: name,
+      phone: phone,
+      status: status,
+      password: password,
+    );
+  }
+
+  static Future<bool> updateAdmin({
+    required String adminId,
+    required String name,
+    String phone = '',
+    String status = 'Active',
+    String? password,
+  }) async {
+    return await DirectDbService.updateAdmin(
+      adminId: adminId,
+      name: name,
+      phone: phone,
+      status: status,
+      password: password,
+    );
+  }
+
+  static Future<bool> toggleStaffStatus(String role, String staffId, String status) async {
+    return await DirectDbService.toggleStaffStatus(role, staffId, status);
+  }
+
+  /// Coupons CRUD
+  static Future<bool> updateCoupon({
+    required String couponId,
+    required String code,
+    required int discountPercent,
+    required int maxUses,
+    String status = 'Active',
+  }) async {
+    return await DirectDbService.updateCoupon(
+      couponId: couponId,
+      code: code,
+      discountPercent: discountPercent,
+      maxUses: maxUses,
+      status: status,
+    );
+  }
+
+  static Future<bool> deleteCoupon(String couponId) async {
+    return await DirectDbService.deleteCoupon(couponId);
+  }
+
+  static Future<bool> toggleCouponStatus(String couponId, String status) async {
+    return await DirectDbService.toggleCouponStatus(couponId, status);
+  }
+
+  /// Manual Payments
+  static Future<bool> createManualPayment({
+    required String assignmentId,
+    required String studentId,
+    required double amount,
+    String currency = 'USD',
+    String paymentMethod = 'Bank Wire / Offline Transfer',
+    String transactionId = '',
+    String paymentPlan = 'Full Payment',
+    String status = 'Completed',
+  }) async {
+    return await DirectDbService.createManualPayment(
+      assignmentId: assignmentId,
+      studentId: studentId,
+      amount: amount,
+      currency: currency,
+      paymentMethod: paymentMethod,
+      transactionId: transactionId,
+      paymentPlan: paymentPlan,
+      status: status,
+    );
+  }
+
+  /// Assignments Admin Controls
+  static Future<bool> updateAssignmentAdmin({
+    required String assignmentId,
+    String? status,
+    double? price,
+    String? expertId,
+    String? allocatorId,
+  }) async {
+    return await DirectDbService.updateAssignmentAdmin(
+      assignmentId: assignmentId,
+      status: status,
+      price: price,
+      expertId: expertId,
+      allocatorId: allocatorId,
+    );
+  }
+
+  static Future<bool> softDeleteAssignment(String assignmentId) async {
+    return await DirectDbService.softDeleteAssignment(assignmentId);
+  }
+
+  static Future<bool> restoreAssignment(String assignmentId) async {
+    return await DirectDbService.restoreAssignment(assignmentId);
+  }
+
+  static Future<bool> wipeAssignment(String assignmentId) async {
+    return await DirectDbService.wipeAssignment(assignmentId);
+  }
+
+  static Future<List<AssignmentModel>> getArchivedAssignments() async {
+    return await DirectDbService.getArchivedAssignments();
+  }
+
+  /// Notifications
+  static Future<bool> sendBroadcastNotification({
+    required String targetRole,
+    required String title,
+    required String message,
+  }) async {
+    return await DirectDbService.sendBroadcastNotification(
+      targetRole: targetRole,
+      title: title,
+      message: message,
+    );
+  }
+
+  static Future<bool> markAllNotificationsRead(String userId) async {
+    return await DirectDbService.markAllNotificationsRead(userId);
+  }
+
+  static Future<bool> deleteNotification(String notificationId) async {
+    return await DirectDbService.deleteNotification(notificationId);
+  }
+
+  /// Blogs
+  static Future<bool> updateBlog({
+    required int blogId,
+    required String title,
+    required String excerpt,
+    required String content,
+    required String category,
+  }) async {
+    return await DirectDbService.updateBlog(
+      blogId: blogId,
+      title: title,
+      excerpt: excerpt,
+      content: content,
+      category: category,
+    );
+  }
+
+  /// System Backup
+  static Future<Map<String, dynamic>> generateSystemBackup() async {
+    return await DirectDbService.generateSystemBackup();
+  }
 }
+
+

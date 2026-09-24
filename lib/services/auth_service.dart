@@ -95,6 +95,20 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Save user session directly (e.g. after registration)
+  Future<void> saveSession({required UserModel user, required String token}) async {
+    _currentUser = user;
+    _token = token;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyUser, jsonEncode(user.toJson()));
+      await prefs.setString(_keyToken, token);
+    } catch (e) {
+      if (kDebugMode) print('saveSession error: $e');
+    }
+    notifyListeners();
+  }
+
   /// Logout and clear stored session
   Future<void> logout() async {
     _currentUser = null;

@@ -19,6 +19,7 @@ class AppTheme {
   static const Color border = Color(0xFFE2E8F0);
 
   static const Color textMain = Color(0xFF0F172A);
+  static const Color textPrimary = Color(0xFF0F172A);
   static const Color textMuted = Color(0xFF475569);
   static const Color textDim = Color(0xFF94A3B8);
 
@@ -31,6 +32,15 @@ class AppTheme {
   static const Color dangerBg = Color(0xFFFEF2F2);
   static const Color info = Color(0xFF2563EB);
   static const Color infoBg = Color(0xFFEFF6FF);
+
+  static Color getStatusColor(String status) {
+    final s = status.toLowerCase();
+    if (s.contains('completed') || s.contains('delivered') || s.contains('paid')) return success;
+    if (s.contains('progress') || s.contains('allocated')) return primary;
+    if (s.contains('qa') || s.contains('review') || s.contains('pending')) return warning;
+    if (s.contains('cancel') || s.contains('refund') || s.contains('delete')) return danger;
+    return info;
+  }
 
   // Gradients
   static const LinearGradient primaryGradient = LinearGradient(

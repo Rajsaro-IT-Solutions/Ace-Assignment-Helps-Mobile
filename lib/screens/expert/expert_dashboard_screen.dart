@@ -6,12 +6,13 @@ import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/assignment_card.dart';
-import '../../widgets/server_config_dialog.dart';
 import '../../widgets/stat_card.dart';
 import '../common/assignment_detail_sheet.dart';
 import '../login_screen.dart';
 import 'expert_completed_screen.dart';
+import 'expert_messages_screen.dart';
 import 'expert_profile_screen.dart';
+import 'expert_solution_upload_dialog.dart';
 
 class ExpertDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -119,21 +120,16 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.upload_file_rounded, color: AppTheme.success),
-              title: const Text('Submit Solution for QA Review'),
-              subtitle: const Text('Notify allocator that draft is complete'),
-              onTap: () async {
+              title: const Text('Submit Solution Package (QA)'),
+              subtitle: const Text('Upload deliverable file, notes & Turnitin report'),
+              onTap: () {
                 Navigator.pop(ctx);
-                final ok = await ApiService.expertAction(
-                  assignmentId: a.assignmentId,
-                  actionType: 'submit_qa',
-                  expertId: widget.user.id,
+                ExpertSolutionUploadDialog.show(
+                  context,
+                  assignment: a,
+                  currentUser: widget.user,
+                  onUploaded: _fetchData,
                 );
-                if (ok && mounted) {
-                  _fetchData();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Solution submitted for QA review!'), backgroundColor: AppTheme.success),
-                  );
-                }
               },
             ),
             ListTile(
@@ -160,17 +156,25 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset('assets/images/logo.png', height: 26, width: 26),
             const SizedBox(width: 8),
-            const Text('Expert Workspace'),
+            const Flexible(
+              child: Text(
+                'Expert Workspace',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: [
           IconButton(
-            tooltip: 'Server Settings',
-            icon: const Icon(Icons.dns_outlined, color: AppTheme.textMuted),
-            onPressed: () => ServerConfigDialog.show(context),
+            tooltip: 'Communications & Chat',
+            icon: const Icon(Icons.forum_outlined, color: AppTheme.primary),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ExpertMessagesScreen(user: widget.user)),
+            ),
           ),
           IconButton(
             tooltip: 'Profile',
@@ -289,8 +293,18 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.forum_outlined, color: AppTheme.primary),
+            title: const Text('Communications & Support'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => ExpertMessagesScreen(user: widget.user)),
+              );
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.person_outline_rounded, color: AppTheme.primary),
-            title: const Text('Profile & Qualifications'),
+            title: const Text('Profile & Remittance Payouts'),
             onTap: () {
               Navigator.pop(context);
               Navigator.of(context).push(
@@ -299,14 +313,6 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
             },
           ),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined, color: AppTheme.textMuted),
-            title: const Text('Server Settings'),
-            onTap: () {
-              Navigator.pop(context);
-              ServerConfigDialog.show(context);
-            },
-          ),
           ListTile(
             leading: const Icon(Icons.logout_rounded, color: AppTheme.danger),
             title: const Text('Sign Out', style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.bold)),

@@ -38,6 +38,9 @@ class AssignmentModel {
   final double paidAmount;
   final double remainingBalance;
   final String instructions;
+  final String priority;
+  final String country;
+  final String paymentStatus;
   final SlaInfo? sla;
 
   AssignmentModel({
@@ -57,6 +60,9 @@ class AssignmentModel {
     this.paidAmount = 0.0,
     this.remainingBalance = 0.0,
     this.instructions = '',
+    this.priority = 'Standard',
+    this.country = 'United Kingdom',
+    this.paymentStatus = 'Pending',
     this.sla,
   });
 
@@ -80,6 +86,9 @@ class AssignmentModel {
       paidAmount: (json['paid_amount'] is num) ? (json['paid_amount'] as num).toDouble() : double.tryParse(json['paid_amount']?.toString() ?? '0') ?? 0.0,
       remainingBalance: (json['remaining_balance'] is num) ? (json['remaining_balance'] as num).toDouble() : double.tryParse(json['remaining_balance']?.toString() ?? '0') ?? 0.0,
       instructions: json['instructions']?.toString() ?? '',
+      priority: json['priority']?.toString() ?? 'Standard',
+      country: json['country']?.toString() ?? 'United Kingdom',
+      paymentStatus: json['payment_status']?.toString() ?? 'Pending',
       sla: json['sla'] != null && json['sla'] is Map<String, dynamic>
           ? SlaInfo.fromJson(json['sla'])
           : null,

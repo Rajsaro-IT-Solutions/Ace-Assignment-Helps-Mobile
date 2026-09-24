@@ -6,12 +6,13 @@ import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/assignment_card.dart';
-import '../../widgets/server_config_dialog.dart';
 import '../../widgets/stat_card.dart';
 import '../common/assignment_detail_sheet.dart';
 import '../login_screen.dart';
-import 'allocator_pending_screen.dart';
+import 'allocator_allocated_screen.dart';
 import 'allocator_experts_screen.dart';
+import 'allocator_pending_screen.dart';
+import 'allocator_qa_screen.dart';
 
 class AllocatorDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -102,28 +103,48 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
     );
   }
 
+  void _openQaScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AllocatorQaScreen(user: widget.user)),
+    );
+    _fetchData();
+  }
+
+  void _openAllocatedQueue() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AllocatorAllocatedScreen(user: widget.user)),
+    );
+    _fetchData();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset('assets/images/logo.png', height: 26, width: 26),
             const SizedBox(width: 8),
-            const Text('Allocator Center'),
+            const Flexible(
+              child: Text(
+                'Allocator Center',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: [
           IconButton(
+            tooltip: 'QA Verification Queue',
+            icon: const Icon(Icons.verified_rounded, color: AppTheme.success),
+            onPressed: _openQaScreen,
+          ),
+          IconButton(
             tooltip: 'Pending Queue',
             icon: const Icon(Icons.hourglass_top_rounded, color: AppTheme.warning),
             onPressed: _openPendingQueue,
-          ),
-          IconButton(
-            tooltip: 'Server Settings',
-            icon: const Icon(Icons.dns_outlined, color: AppTheme.textMuted),
-            onPressed: () => ServerConfigDialog.show(context),
           ),
         ],
       ),
@@ -220,12 +241,19 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.assignment_turned_in_outlined, color: AppTheme.primary),
-            title: const Text('Allocated & Active'),
-            selected: _currentBottomNav == 2,
+            leading: const Icon(Icons.verified_rounded, color: AppTheme.success),
+            title: const Text('QA Verification Queue'),
             onTap: () {
               Navigator.pop(context);
-              setState(() => _currentBottomNav = 2);
+              _openQaScreen();
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.timer_outlined, color: AppTheme.primary),
+            title: const Text('Production SLA Queue'),
+            onTap: () {
+              Navigator.pop(context);
+              _openAllocatedQueue();
             },
           ),
           ListTile(
@@ -237,14 +265,6 @@ class _AllocatorDashboardScreenState extends State<AllocatorDashboardScreen> {
             },
           ),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined, color: AppTheme.textMuted),
-            title: const Text('Server Settings'),
-            onTap: () {
-              Navigator.pop(context);
-              ServerConfigDialog.show(context);
-            },
-          ),
           ListTile(
             leading: const Icon(Icons.logout_rounded, color: AppTheme.danger),
             title: const Text('Sign Out', style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.bold)),

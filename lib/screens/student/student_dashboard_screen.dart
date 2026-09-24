@@ -6,7 +6,6 @@ import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/assignment_card.dart';
-import '../../widgets/server_config_dialog.dart';
 import '../../widgets/stat_card.dart';
 import '../common/assignment_detail_sheet.dart';
 import '../login_screen.dart';
@@ -14,6 +13,8 @@ import 'student_submit_assignment_screen.dart';
 import 'student_payments_screen.dart';
 import 'student_messages_screen.dart';
 import 'student_profile_screen.dart';
+import 'student_whatsapp_screen.dart';
+import 'student_history_screen.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -114,21 +115,29 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset('assets/images/logo.png', height: 26, width: 26),
             const SizedBox(width: 8),
-            const Text('Ace Assignment Helps'),
+            const Flexible(
+              child: Text(
+                'Ace Portal',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: [
           IconButton(
-            tooltip: 'Server Connection',
-            icon: const Icon(Icons.dns_outlined, color: AppTheme.textMuted),
-            onPressed: () => ServerConfigDialog.show(context),
+            tooltip: 'Live WhatsApp & Support Chat',
+            icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF10B981)),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => StudentWhatsAppScreen(user: widget.user)),
+            ),
           ),
           IconButton(
-            tooltip: 'Support & Tickets',
-            icon: const Icon(Icons.chat_outlined, color: AppTheme.textMuted),
+            tooltip: 'Support Tickets',
+            icon: const Icon(Icons.support_agent_rounded, color: AppTheme.textMuted),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => StudentMessagesScreen(user: widget.user)),
             ),
@@ -252,6 +261,26 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF10B981)),
+            title: const Text('WhatsApp & Live Chat Hub'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => StudentWhatsAppScreen(user: widget.user)),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.history_edu_rounded, color: AppTheme.secondary),
+            title: const Text('Assignment History & Archives'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => StudentHistoryScreen(user: widget.user)),
+              );
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.credit_card_outlined, color: AppTheme.primary),
             title: const Text('Invoices & Payments'),
             onTap: () {
@@ -282,14 +311,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             },
           ),
           const Divider(),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined, color: AppTheme.textMuted),
-            title: const Text('Server Settings'),
-            onTap: () {
-              Navigator.pop(context);
-              ServerConfigDialog.show(context);
-            },
-          ),
           ListTile(
             leading: const Icon(Icons.logout_rounded, color: AppTheme.danger),
             title: const Text('Sign Out', style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.bold)),

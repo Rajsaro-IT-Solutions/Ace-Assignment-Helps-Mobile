@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../core/models/user_model.dart';
 import '../core/theme/app_theme.dart';
 import '../services/auth_service.dart';
-import '../widgets/server_config_dialog.dart';
 import 'student/student_dashboard_screen.dart';
+import 'student/register_screen.dart';
 import 'expert/expert_dashboard_screen.dart';
 import 'allocator/allocator_dashboard_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
@@ -96,14 +96,6 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Server Connection Settings',
-            icon: const Icon(Icons.settings_outlined, color: AppTheme.textMuted),
-            onPressed: () => ServerConfigDialog.show(context),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: SafeArea(
         child: Center(
@@ -184,18 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 if (_errorMessage!.toLowerCase().contains('connection') ||
                                     _errorMessage!.toLowerCase().contains('network')) ...[
                                   const SizedBox(height: 6),
-                                  InkWell(
-                                    onTap: () => ServerConfigDialog.show(context),
-                                    child: const Text(
-                                      'Tap here to check or change server settings ↗',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppTheme.primary,
-                                        decoration: TextDecoration.underline,
-                                      ),
-                                    ),
-                                  ),
+
                                 ],
                               ],
                             ),
@@ -308,7 +289,34 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        "Don't have a student account? ",
+                        style: TextStyle(fontSize: 13, color: AppTheme.textMuted),
+                      ),
+                      InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                          );
+                        },
+                        child: const Text(
+                          'Register Here',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.primary,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
 
                   // Quick 1-Tap Fill Section (for testing/demo convenience)
                   Container(
