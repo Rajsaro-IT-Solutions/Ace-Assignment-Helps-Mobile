@@ -1927,6 +1927,245 @@ class DirectDbService {
     return false;
   }
 
+  /// Get Student Notifications
+  static Future<List<NotificationModel>> getStudentNotificationsDirect({
+    required String studentId,
+  }) async {
+    final conn = await _connect();
+    if (conn == null) return [];
+
+    try {
+      var rows = await conn.execute(
+        "SELECT * FROM notifications WHERE user_role IN ('Student', 'All') OR user_id = :uid ORDER BY id DESC LIMIT 50",
+        {'uid': studentId},
+      );
+      List<NotificationModel> list = [];
+      for (var r in rows.rows) {
+        list.add(NotificationModel.fromJson(r.assoc()));
+      }
+      await conn.close();
+      return list;
+    } catch (e) {
+      if (kDebugMode) print('DirectDbService.getStudentNotificationsDirect error: $e');
+      await conn.close();
+    }
+    return [];
+  }
+
+  /// Submit Student Refund Request
+  static Future<bool> requestStudentRefundDirect({
+    required String assignmentId,
+    required String studentId,
+    required String reason,
+    required String details,
+  }) async {
+    final conn = await _connect();
+    if (conn == null) return false;
+
+    try {
+      // 1. Update assignment status and refund_reason
+      await conn.execute(
+        "UPDATE assignments SET status = 'Refund Requested', refund_reason = :rsn, updated_at = NOW() WHERE assignment_id = :aid",
+        {'aid': assignmentId, 'rsn': '$reason - $details'},
+      );
+
+      // 2. Insert into notes
+      final noteId = 'NOT-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+      await conn.execute(
+        'INSERT INTO notes (note_id, assignment_id, user_id, user_role, user_name, message, visibility, created_at) '
+        'VALUES (:nid, :aid, :uid, "Student", "Student", :msg, "Internal", NOW())',
+        {
+          'nid': noteId,
+          'aid': assignmentId,
+          'uid': studentId,
+          'msg': 'Refund Request Submitted: $reason. Details: $details',
+        },
+      );
+
+      // 3. Log to audit_logs
+      final logId = 'LOG-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+      await conn.execute(
+        'INSERT INTO audit_logs (log_id, user_role, user_id, action, details, timestamp) '
+        'VALUES (:lid, "Student", :uid, "Refund Requested", :dtl, NOW())',
+        {
+          'lid': logId,
+          'uid': studentId,
+          'dtl': 'Refund requested for $assignmentId. Reason: $reason',
+        },
+      );
+
+      // 4. Dispatch Admin notification
+      final notifId = 'NTF-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+      await conn.execute(
+        'INSERT INTO notifications (notification_id, user_id, user_role, title, message, is_read, created_at) '
+        'VALUES (:nid, "ALL", "Admin", :title, :msg, 0, NOW())',
+        {
+          'nid': notifId,
+          'title': 'Refund Request: $assignmentId',
+          'msg': 'Student $studentId submitted a refund request for $assignmentId: $reason',
+        },
+      );
+
+      await conn.close();
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('DirectDbService.requestStudentRefundDirect error: $e');
+      await conn.close();
+    }
+    return false;
+  }
+
+  /// Upload Supplementary File for Assignment
+  static Future<bool> uploadStudentSupplementaryFileDirect({
+    required String assignmentId,
+    required String fileName,
+    required String fileType,
+    String path = '',
+  }) async {
+    return await uploadDeliverableDirect(
+      assignmentId: assignmentId,
+      fileName: fileName,
+      fileType: fileType,
+      fileStage: 'brief',
+      uploadedBy: 'Student',
+      isInternal: false,
+      path: path,
+    );
+  }
+
+  /// Get Expert Notifications
+  static Future<List<NotificationModel>> getExpertNotificationsDirect({
+    required String expertId,
+  }) async {
+    final conn = await _connect();
+    if (conn == null) return [];
+
+    try {
+      var rows = await conn.execute(
+        "SELECT * FROM notifications WHERE user_role IN ('Expert', 'All') OR user_id = :uid ORDER BY id DESC LIMIT 50",
+        {'uid': expertId},
+      );
+      List<NotificationModel> list = [];
+      for (var r in rows.rows) {
+        list.add(NotificationModel.fromJson(r.assoc()));
+      }
+      await conn.close();
+      return list;
+    } catch (e) {
+      if (kDebugMode) print('DirectDbService.getExpertNotificationsDirect error: $e');
+      await conn.close();
+    }
+    return [];
+  }
+
+  /// Get Expert Profile & Stats Details
+  static Future<Map<String, dynamic>?> getExpertProfileDetailsDirect({
+    required String expertId,
+  }) async {
+    final conn = await _connect();
+    if (conn == null) return null;
+
+    try {
+      var res = await conn.execute(
+        'SELECT * FROM experts WHERE expert_id = :id OR email = :id LIMIT 1',
+        {'id': expertId},
+      );
+      if (res.rows.isNotEmpty) {
+        final r = res.rows.first.assoc();
+        await conn.close();
+        return r;
+      }
+      await conn.close();
+    } catch (e) {
+      if (kDebugMode) print('DirectDbService.getExpertProfileDetailsDirect error: $e');
+      await conn.close();
+    }
+    return null;
+  }
+
+  /// Direct Expert Actions (Start Task, Submit Solution / QA, Complete)
+  static Future<bool> expertActionDirect({
+    required String assignmentId,
+    required String actionType,
+    required String expertId,
+    String notes = '',
+  }) async {
+    final conn = await _connect();
+    if (conn == null) return false;
+
+    try {
+      String targetStatus = 'In Progress';
+      if (actionType.toLowerCase() == 'start') {
+        targetStatus = 'In Progress';
+      } else if (actionType.toLowerCase() == 'submit_qa' || actionType.toLowerCase() == 'qa') {
+        targetStatus = 'Under QA';
+      } else if (actionType.toLowerCase() == 'complete') {
+        targetStatus = 'Completed';
+      }
+
+      // 1. Update assignment status
+      await conn.execute(
+        'UPDATE assignments SET status = :st, updated_at = NOW() WHERE assignment_id = :aid',
+        {'st': targetStatus, 'aid': assignmentId},
+      );
+
+      // 2. Update allocation status
+      await conn.execute(
+        'UPDATE allocation SET status = :st WHERE assignment_id = :aid',
+        {'st': targetStatus, 'aid': assignmentId},
+      );
+
+      // 3. Log to audit_logs
+      final logId = 'LOG-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+      await conn.execute(
+        'INSERT INTO audit_logs (log_id, user_role, user_id, action, details, timestamp) '
+        'VALUES (:lid, "Expert", :uid, :act, :dtl, NOW())',
+        {
+          'lid': logId,
+          'uid': expertId,
+          'act': 'Status changed to $targetStatus',
+          'dtl': notes.isNotEmpty ? notes : 'Expert updated status of $assignmentId to $targetStatus',
+        },
+      );
+
+      // 4. If notes provided, insert into notes table
+      if (notes.isNotEmpty) {
+        final noteId = 'NOT-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+        await conn.execute(
+          'INSERT INTO notes (note_id, assignment_id, user_id, user_role, user_name, message, visibility, created_at) '
+          'VALUES (:nid, :aid, :uid, "Expert", "Expert", :msg, "Internal", NOW())',
+          {
+            'nid': noteId,
+            'aid': assignmentId,
+            'uid': expertId,
+            'msg': notes,
+          },
+        );
+      }
+
+      // 5. If QA submitted, notify Allocator/Admin
+      if (targetStatus == 'Under QA') {
+        final notifId = 'NTF-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+        await conn.execute(
+          'INSERT INTO notifications (notification_id, user_id, user_role, title, message, is_read, created_at) '
+          'VALUES (:nid, "ALL", "Allocator", :title, :msg, 0, NOW())',
+          {
+            'nid': notifId,
+            'title': 'QA Solution Submitted: $assignmentId',
+            'msg': 'Expert $expertId submitted solution package for $assignmentId for Quality Check.',
+          },
+        );
+      }
+
+      await conn.close();
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('DirectDbService.expertActionDirect error: $e');
+      await conn.close();
+    }
+    return false;
+  }
+
   /// Helper to convert MySQL Row to Map
   static Map<String, dynamic> _mapRowToAssignmentJson(Map<String, String?> row) {
     double pr = double.tryParse(row['price'] ?? '0') ?? 0.0;

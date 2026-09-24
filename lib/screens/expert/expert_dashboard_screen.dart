@@ -13,6 +13,7 @@ import 'expert_completed_screen.dart';
 import 'expert_messages_screen.dart';
 import 'expert_profile_screen.dart';
 import 'expert_solution_upload_dialog.dart';
+import 'expert_notifications_screen.dart';
 
 class ExpertDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -29,6 +30,9 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
   DashboardData? _dashboard;
   List<AssignmentModel> _assignments = [];
   String _selectedStatus = 'All';
+  int _unreadNotifCount = 0;
+  String _availabilityStatus = 'Available';
+  final _searchCtrl = TextEditingController();
 
   final List<String> _statusFilters = ['All', 'In Progress', 'Under QA', 'Completed'];
 
@@ -36,6 +40,12 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
   void initState() {
     super.initState();
     _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchData() async {
@@ -52,14 +62,49 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
       status: _selectedStatus,
     );
 
-    final results = await Future.wait([dashboardFuture, assignmentsFuture]);
+    final notifsFuture = ApiService.getExpertNotifications(expertId: widget.user.id);
+    final profileFuture = ApiService.getExpertProfileDetails(expertId: widget.user.id);
+
+    final results = await Future.wait([dashboardFuture, assignmentsFuture, notifsFuture, profileFuture]);
 
     if (mounted) {
+      final notifs = results[2] as List<NotificationModel>;
+      final profile = results[3] as Map<String, dynamic>?;
+
       setState(() {
         _dashboard = results[0] as DashboardData?;
         _assignments = results[1] as List<AssignmentModel>;
+        _unreadNotifCount = notifs.where((n) => !n.isRead).length;
+        if (profile != null && profile['status'] != null) {
+          _availabilityStatus = profile['status'].toString();
+        }
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _toggleAvailability() async {
+    final nextStatus = _availabilityStatus.toLowerCase() == 'available' ? 'Busy' : 'Available';
+    setState(() => _availabilityStatus = nextStatus);
+
+    final ok = await ApiService.toggleExpertAvailability(
+      expertId: widget.user.id,
+      status: nextStatus,
+    );
+
+    if (mounted) {
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Roster availability updated: $nextStatus'),
+            backgroundColor: nextStatus == 'Available' ? AppTheme.success : AppTheme.warning,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update availability status.'), backgroundColor: AppTheme.danger),
+        );
+      }
     }
   }
 
@@ -100,24 +145,38 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Task Actions: ${a.assignmentId}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Task Actions: ${a.assignmentId}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryLight,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(a.status, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(a.title, style: const TextStyle(fontSize: 13, color: AppTheme.textMuted)),
             const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.play_arrow_rounded, color: AppTheme.primary),
-              title: const Text('Start Working on Task'),
-              subtitle: const Text('Mark status as "In Progress"'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final ok = await ApiService.expertAction(
-                  assignmentId: a.assignmentId,
-                  actionType: 'start',
-                  expertId: widget.user.id,
-                );
-                if (ok) _fetchData();
-              },
-            ),
+            if (a.status.toLowerCase() == 'pending' || a.status.toLowerCase() == 'allocated')
+              ListTile(
+                leading: const Icon(Icons.play_arrow_rounded, color: AppTheme.primary),
+                title: const Text('Start Working on Task'),
+                subtitle: const Text('Mark status as "In Progress"'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final ok = await ApiService.expertAction(
+                    assignmentId: a.assignmentId,
+                    actionType: 'start',
+                    expertId: widget.user.id,
+                  );
+                  if (ok) _fetchData();
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.upload_file_rounded, color: AppTheme.success),
               title: const Text('Submit Solution Package (QA)'),
@@ -133,14 +192,16 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.info_outline, color: AppTheme.textMuted),
+              leading: const Icon(Icons.assignment_rounded, color: AppTheme.secondary),
               title: const Text('View Full Assignment Brief'),
+              subtitle: const Text('Access student files, requirements, and reference notes'),
               onTap: () {
                 Navigator.pop(ctx);
                 AssignmentDetailSheet.show(
                   context,
                   assignment: a,
                   currentUser: widget.user,
+                  onStatusChanged: _fetchData,
                 );
               },
             ),
@@ -148,6 +209,19 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
         ),
       ),
     );
+  }
+
+  List<AssignmentModel> get _filteredAssignedTasks {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    return _assignments.where((a) {
+      if (q.isNotEmpty) {
+        final matchesQuery = a.assignmentId.toLowerCase().contains(q) ||
+            a.title.toLowerCase().contains(q) ||
+            a.subject.toLowerCase().contains(q);
+        if (!matchesQuery) return false;
+      }
+      return true;
+    }).toList();
   }
 
   @override
@@ -169,6 +243,39 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
           ],
         ),
         actions: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Alerts & Notifications',
+                icon: const Icon(Icons.notifications_outlined, color: AppTheme.textMuted),
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => ExpertNotificationsScreen(user: widget.user)),
+                  );
+                  _fetchData();
+                },
+              ),
+              if (_unreadNotifCount > 0)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.danger,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      '$_unreadNotifCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: 'Communications & Chat',
             icon: const Icon(Icons.forum_outlined, color: AppTheme.primary),
@@ -293,6 +400,29 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.notifications_outlined, color: AppTheme.primary),
+            title: const Text('Notifications Center'),
+            trailing: _unreadNotifCount > 0
+                ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.danger,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$_unreadNotifCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  )
+                : null,
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => ExpertNotificationsScreen(user: widget.user)),
+              ).then((_) => _fetchData());
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.forum_outlined, color: AppTheme.primary),
             title: const Text('Communications & Support'),
             onTap: () {
@@ -332,6 +462,7 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
     final inProgress = stats['in_progress']?.toString() ?? '0';
     final underQa = stats['under_qa']?.toString() ?? '0';
     final completed = stats['completed']?.toString() ?? '0';
+    final isAvailable = _availabilityStatus.toLowerCase() == 'available';
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -339,7 +470,7 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Banner
+          // Banner with Availability Status Toggle (Mirroring /expert/index.php)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -350,6 +481,13 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF047857).withValues(alpha: 0.2),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,12 +517,62 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
                   'Review assigned briefs, deliver milestone drafts, and meet strict SLA deadlines.',
                   style: TextStyle(fontSize: 13, color: Colors.white70),
                 ),
+                const SizedBox(height: 16),
+
+                // Availability Status Pill & Toggle Action Button
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isAvailable ? AppTheme.success.withValues(alpha: 0.25) : AppTheme.warning.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: isAvailable ? const Color(0xFF34D399) : const Color(0xFFFBBF24)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isAvailable ? Icons.check_circle_rounded : Icons.pause_circle_rounded,
+                            size: 14,
+                            color: isAvailable ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isAvailable ? 'Available for Tasks' : 'Status: Busy',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isAvailable ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: _toggleAvailability,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          isAvailable ? 'Switch to Busy' : 'Switch to Available',
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
 
-          // KPI Cards
+          // 4 KPI Cards
           Row(
             children: [
               Expanded(
@@ -394,6 +582,7 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
                   icon: Icons.assignment_outlined,
                   color: AppTheme.primary,
                   subtitle: 'Total tasks assigned',
+                  onTap: () => setState(() => _currentBottomNav = 1),
                 ),
               ),
               const SizedBox(width: 12),
@@ -404,6 +593,13 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
                   icon: Icons.edit_note_rounded,
                   color: AppTheme.accent,
                   subtitle: 'Drafts in progress',
+                  onTap: () {
+                    setState(() {
+                      _selectedStatus = 'In Progress';
+                      _currentBottomNav = 1;
+                    });
+                    _fetchData();
+                  },
                 ),
               ),
             ],
@@ -418,6 +614,13 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
                   icon: Icons.fact_check_outlined,
                   color: AppTheme.warning,
                   subtitle: 'Awaiting allocator check',
+                  onTap: () {
+                    setState(() {
+                      _selectedStatus = 'Under QA';
+                      _currentBottomNav = 1;
+                    });
+                    _fetchData();
+                  },
                 ),
               ),
               const SizedBox(width: 12),
@@ -437,7 +640,7 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Active Assignments Section
+          // Active Assignments Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -471,6 +674,29 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.textMain),
           ),
           const SizedBox(height: 12),
+
+          // Search Box
+          TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'Search tasks by order ID, title, subject...',
+              prefixIcon: const Icon(Icons.search_rounded, size: 20),
+              suffixIcon: _searchCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() {});
+                      },
+                    )
+                  : null,
+              isDense: true,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 12),
+
+          // Status Filter Chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -478,10 +704,9 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
                 final isSel = _selectedStatus == s;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
+                  child: ChoiceChip(
                     label: Text(s),
                     selected: isSel,
-                    selectedColor: AppTheme.primaryLight,
                     onSelected: (_) {
                       setState(() => _selectedStatus = s);
                       _fetchData();
@@ -499,7 +724,8 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
   }
 
   Widget _buildAssignmentsList() {
-    if (_assignments.isEmpty) {
+    final list = _filteredAssignedTasks;
+    if (list.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(36),
@@ -508,11 +734,21 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.border),
         ),
-        child: const Column(
+        child: Column(
           children: [
-            Icon(Icons.assignment_turned_in_outlined, size: 48, color: AppTheme.textDim),
-            SizedBox(height: 12),
-            Text('No tasks in this view', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Icon(Icons.assignment_turned_in_outlined, size: 48, color: AppTheme.textDim),
+            const SizedBox(height: 12),
+            Text(
+              _searchCtrl.text.isNotEmpty ? 'No tasks match "${_searchCtrl.text.trim()}"' : 'No tasks in this view',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _searchCtrl.text.isNotEmpty
+                  ? 'Try clearing the search query or changing filters.'
+                  : 'New assignment allocations will appear here.',
+              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+            ),
           ],
         ),
       );
@@ -521,10 +757,10 @@ class _ExpertDashboardScreenState extends State<ExpertDashboardScreen> {
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _assignments.length,
+      itemCount: list.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (ctx, i) {
-        final a = _assignments[i];
+        final a = list[i];
         return InkWell(
           onLongPress: () => _showTaskActionSheet(a),
           child: AssignmentCard(

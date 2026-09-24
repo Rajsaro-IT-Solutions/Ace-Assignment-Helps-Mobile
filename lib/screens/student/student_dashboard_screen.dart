@@ -15,6 +15,7 @@ import 'student_messages_screen.dart';
 import 'student_profile_screen.dart';
 import 'student_whatsapp_screen.dart';
 import 'student_history_screen.dart';
+import 'student_notifications_screen.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   final UserModel user;
@@ -30,6 +31,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   bool _loading = true;
   DashboardData? _dashboard;
   List<AssignmentModel> _assignments = [];
+  int _unreadNotifCount = 0;
   String _selectedStatus = 'All';
   final TextEditingController _searchController = TextEditingController();
 
@@ -62,12 +64,16 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       search: _searchController.text.trim(),
     );
 
-    final results = await Future.wait([dashboardFuture, assignmentsFuture]);
+    final notifsFuture = ApiService.getStudentNotifications(studentId: widget.user.id);
+
+    final results = await Future.wait([dashboardFuture, assignmentsFuture, notifsFuture]);
 
     if (mounted) {
+      final notifs = results[2] as List<NotificationModel>;
       setState(() {
         _dashboard = results[0] as DashboardData?;
         _assignments = results[1] as List<AssignmentModel>;
+        _unreadNotifCount = notifs.where((n) => !n.isRead).length;
         _loading = false;
       });
     }
@@ -128,6 +134,39 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           ],
         ),
         actions: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Notifications Center',
+                icon: const Icon(Icons.notifications_outlined, color: AppTheme.textMuted),
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => StudentNotificationsScreen(user: widget.user)),
+                  );
+                  _fetchData();
+                },
+              ),
+              if (_unreadNotifCount > 0)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.danger,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      '$_unreadNotifCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: 'Live WhatsApp & Support Chat',
             icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF10B981)),
@@ -291,6 +330,29 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.notifications_outlined, color: AppTheme.primary),
+            title: const Text('Notifications Center'),
+            trailing: _unreadNotifCount > 0
+                ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.danger,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$_unreadNotifCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  )
+                : null,
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => StudentNotificationsScreen(user: widget.user)),
+              ).then((_) => _fetchData());
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.support_agent_rounded, color: AppTheme.primary),
             title: const Text('Support Tickets & Chat'),
             onTap: () {
@@ -392,6 +454,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                     _buildBannerActionBtn('Submit Brief', Icons.add_circle_outline, _openSubmitScreen),
                     _buildBannerActionBtn('Invoices', Icons.receipt_long_outlined, () {
                       Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentPaymentsScreen(user: widget.user)));
+                    }),
+                    _buildBannerActionBtn('Archives', Icons.history_edu_rounded, () {
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentHistoryScreen(user: widget.user)));
                     }),
                     _buildBannerActionBtn('Support Chat', Icons.chat_bubble_outline, () {
                       Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentMessagesScreen(user: widget.user)));

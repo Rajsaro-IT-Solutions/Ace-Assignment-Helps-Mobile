@@ -18,11 +18,21 @@ class StudentPaymentsScreen extends StatefulWidget {
 class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
   bool _loading = true;
   List<PaymentModel> _payments = [];
+  final _searchCtrl = TextEditingController();
+  String _statusFilter = 'All';
+
+  final List<String> _filters = ['All', 'Paid', 'Pending', 'Refunded'];
 
   @override
   void initState() {
     super.initState();
     _loadPayments();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPayments() async {
@@ -40,6 +50,36 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
     return _payments
         .where((p) => p.status.toLowerCase() == 'paid' || p.status.toLowerCase() == 'completed')
         .fold(0.0, (sum, p) => sum + p.amount);
+  }
+
+  double get _totalPending {
+    return _payments
+        .where((p) => p.status.toLowerCase() == 'pending')
+        .fold(0.0, (sum, p) => sum + p.amount);
+  }
+
+  List<PaymentModel> get _filteredPayments {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    return _payments.where((p) {
+      final s = p.status.toLowerCase();
+      bool matchesStatus = true;
+      if (_statusFilter == 'Paid') {
+        matchesStatus = s == 'paid' || s == 'completed';
+      } else if (_statusFilter == 'Pending') {
+        matchesStatus = s == 'pending';
+      } else if (_statusFilter == 'Refunded') {
+        matchesStatus = s == 'refunded' || s.contains('refund');
+      }
+
+      final matchesQuery = q.isEmpty ||
+          p.paymentId.toLowerCase().contains(q) ||
+          p.assignmentId.toLowerCase().contains(q) ||
+          p.assignmentTitle.toLowerCase().contains(q) ||
+          p.assignmentSubject.toLowerCase().contains(q) ||
+          p.transactionId.toLowerCase().contains(q);
+
+      return matchesStatus && matchesQuery;
+    }).toList();
   }
 
   @override
@@ -101,14 +141,21 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          Row(
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
                             children: [
                               _buildMetricPill(
                                 '${_payments.length} Invoices',
                                 Colors.white.withValues(alpha: 0.15),
                                 Colors.white,
                               ),
-                              const SizedBox(width: 8),
+                              if (_totalPending > 0)
+                                _buildMetricPill(
+                                  '\$${_totalPending.toStringAsFixed(2)} Pending',
+                                  AppTheme.warning.withValues(alpha: 0.25),
+                                  const Color(0xFFFBBF24),
+                                ),
                               _buildMetricPill(
                                 'AWS RDS Synced',
                                 AppTheme.success.withValues(alpha: 0.25),
@@ -119,21 +166,71 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
+
+                    // Filter & Search Box
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: Column(
+                        children: [
+                          TextField(
+                            controller: _searchCtrl,
+                            decoration: InputDecoration(
+                              hintText: 'Search invoices, transactions, order ID...',
+                              prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                              suffixIcon: _searchCtrl.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear_rounded, size: 18),
+                                      onPressed: () {
+                                        _searchCtrl.clear();
+                                        setState(() {});
+                                      },
+                                    )
+                                  : null,
+                              isDense: true,
+                            ),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                          const SizedBox(height: 12),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: _filters.map((f) {
+                                final isSelected = _statusFilter == f;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(f),
+                                    selected: isSelected,
+                                    onSelected: (_) => setState(() => _statusFilter = f),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Header
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Payment History (${_payments.length})',
+                          'Payment History (${_filteredPayments.length})',
                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textMain),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
 
-                    if (_payments.isEmpty)
+                    if (_filteredPayments.isEmpty)
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(32),
@@ -142,19 +239,23 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppTheme.border),
                         ),
-                        child: const Column(
+                        child: Column(
                           children: [
-                            Icon(Icons.receipt_long_outlined, size: 48, color: AppTheme.textDim),
-                            SizedBox(height: 12),
+                            const Icon(Icons.receipt_long_outlined, size: 48, color: AppTheme.textDim),
+                            const SizedBox(height: 12),
                             Text(
-                              'No invoices found',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain),
+                              _searchCtrl.text.isNotEmpty || _statusFilter != 'All'
+                                  ? 'No matching invoices'
+                                  : 'No invoices found',
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textMain),
                             ),
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Text(
-                              'When you submit assignments, invoice and payment logs will appear here.',
+                              _searchCtrl.text.isNotEmpty
+                                  ? 'Try clearing the search or status filter.'
+                                  : 'When you submit assignments, invoice and payment logs will appear here.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                             ),
                           ],
                         ),
@@ -163,11 +264,19 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                       ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _payments.length,
+                        itemCount: _filteredPayments.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (ctx, i) {
-                          final p = _payments[i];
+                          final p = _filteredPayments[i];
                           final isPaid = p.status.toLowerCase() == 'paid' || p.status.toLowerCase() == 'completed';
+                          final isPending = p.status.toLowerCase() == 'pending';
+
+                          Color badgeColor = isPaid
+                              ? AppTheme.success
+                              : (isPending ? AppTheme.warning : const Color(0xFF8B5CF6));
+                          Color badgeBg = isPaid
+                              ? AppTheme.successBg
+                              : (isPending ? AppTheme.warningBg : const Color(0xFF8B5CF6).withValues(alpha: 0.12));
 
                           return Container(
                             padding: const EdgeInsets.all(16),
@@ -200,16 +309,16 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: isPaid ? AppTheme.successBg : AppTheme.warningBg,
+                                        color: badgeBg,
                                         borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: isPaid ? AppTheme.success : AppTheme.warning),
+                                        border: Border.all(color: badgeColor),
                                       ),
                                       child: Text(
                                         p.status,
                                         style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
-                                          color: isPaid ? AppTheme.success : AppTheme.warning,
+                                          color: badgeColor,
                                         ),
                                       ),
                                     ),
@@ -225,6 +334,13 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                                   'Order ID: ${p.assignmentId} • ${p.assignmentSubject}',
                                   style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                                 ),
+                                if (p.transactionId.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Txn: ${p.transactionId}',
+                                    style: const TextStyle(fontSize: 11, color: AppTheme.textDim),
+                                  ),
+                                ],
                                 const Divider(height: 20),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -233,7 +349,7 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          p.paymentMethod,
+                                          p.paymentMethod.isNotEmpty ? p.paymentMethod : 'Payment Method',
                                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textDim),
                                         ),
                                         Text(
@@ -244,43 +360,46 @@ class _StudentPaymentsScreenState extends State<StudentPaymentsScreen> {
                                     ),
                                     Text(
                                       '${p.amount.toStringAsFixed(2)} ${p.currency}',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w800,
-                                        color: AppTheme.primary,
+                                        color: isPaid ? AppTheme.primary : AppTheme.warning,
                                       ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 10),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton.icon(
-                                    onPressed: () {
-                                      final dummyAsm = AssignmentModel(
-                                        assignmentId: p.assignmentId,
-                                        studentId: p.studentId,
-                                        title: p.assignmentTitle,
-                                        subject: p.assignmentSubject,
-                                        assignmentType: 'Assignment Order',
-                                        status: p.status,
-                                        deadline: p.paymentDate,
-                                        wordCount: 1000,
-                                        price: p.amount,
-                                        finalPrice: p.amount,
-                                        currency: p.currency,
-                                        paidAmount: p.amount,
-                                      );
-                                      InvoiceViewDialog.show(
-                                        context,
-                                        assignment: dummyAsm,
-                                        currentUser: widget.user,
-                                        onPaymentSuccess: _loadPayments,
-                                      );
-                                    },
-                                    icon: const Icon(Icons.receipt_long_rounded, size: 16),
-                                    label: const Text('View Tax Invoice & Breakdown', style: TextStyle(fontSize: 12)),
-                                  ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () {
+                                          final dummyAsm = AssignmentModel(
+                                            assignmentId: p.assignmentId,
+                                            studentId: p.studentId,
+                                            title: p.assignmentTitle,
+                                            subject: p.assignmentSubject,
+                                            assignmentType: 'Assignment Order',
+                                            status: p.status,
+                                            deadline: p.paymentDate,
+                                            wordCount: 1000,
+                                            price: p.amount,
+                                            finalPrice: p.amount,
+                                            currency: p.currency,
+                                            paidAmount: isPaid ? p.amount : 0.0,
+                                          );
+                                          InvoiceViewDialog.show(
+                                            context,
+                                            assignment: dummyAsm,
+                                            currentUser: widget.user,
+                                            onPaymentSuccess: _loadPayments,
+                                          );
+                                        },
+                                        icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                                        label: const Text('View Tax Invoice & Breakdown', style: TextStyle(fontSize: 12)),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

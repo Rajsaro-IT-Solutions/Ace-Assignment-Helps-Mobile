@@ -365,6 +365,14 @@ class ApiService {
     String notes = '',
   }) async {
     try {
+      final directOk = await DirectDbService.expertActionDirect(
+        assignmentId: assignmentId,
+        actionType: actionType,
+        expertId: expertId,
+        notes: notes,
+      );
+      if (directOk) return true;
+
       final uri = Uri.parse(ApiConfig.portalApiEndpoint);
       final response = await http.post(
         uri,
@@ -727,9 +735,22 @@ class ApiService {
         statusCode: response.statusCode,
       );
     } catch (e) {
-      if (kDebugMode) print('uploadAssignmentFile error: $e');
-      return ApiResponse(success: false, message: 'Upload failed: $e', statusCode: 0);
+      if (kDebugMode) print('uploadAssignmentFile error, falling back to direct RDS MySQL: $e');
     }
+
+    final directOk = await DirectDbService.uploadDeliverableDirect(
+      assignmentId: assignmentId,
+      fileName: fileName,
+      fileType: fileName.endsWith('.pdf') ? 'application/pdf' : (fileName.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/octet-stream'),
+      fileStage: fileStage,
+      uploadedBy: uploadedBy,
+      isInternal: isInternal,
+      path: 'uploads/$fileName',
+    );
+    if (directOk) {
+      return ApiResponse(success: true, message: 'File uploaded successfully', statusCode: 200);
+    }
+    return ApiResponse(success: false, message: 'Upload failed', statusCode: 0);
   }
 
   /// Delete assignment file
@@ -788,6 +809,21 @@ class ApiService {
     required String details,
   }) async {
     try {
+      // Direct RDS MySQL update
+      final directSuccess = await DirectDbService.requestStudentRefundDirect(
+        assignmentId: assignmentId,
+        studentId: studentId,
+        reason: reason,
+        details: details,
+      );
+      if (directSuccess) {
+        return ApiResponse(
+          success: true,
+          message: 'Refund request submitted to management.',
+          statusCode: 200,
+        );
+      }
+
       final uri = Uri.parse(ApiConfig.portalApiEndpoint);
       final response = await http.post(
         uri,
@@ -1753,6 +1789,68 @@ class ApiService {
       userRole: 'Allocator',
       userId: allocatorId,
     );
+  }
+
+  /// Student Notifications
+  static Future<List<NotificationModel>> getStudentNotifications({
+    required String studentId,
+  }) async {
+    return await DirectDbService.getStudentNotificationsDirect(studentId: studentId);
+  }
+
+  static Future<bool> markAllStudentNotificationsRead({
+    required String studentId,
+  }) async {
+    return await DirectDbService.markAllNotificationsReadDirect(
+      userRole: 'Student',
+      userId: studentId,
+    );
+  }
+
+  /// Student Upload Supplementary File
+  static Future<bool> uploadStudentSupplementaryFile({
+    required String assignmentId,
+    required String fileName,
+    required String fileType,
+    String path = '',
+  }) async {
+    return await DirectDbService.uploadStudentSupplementaryFileDirect(
+      assignmentId: assignmentId,
+      fileName: fileName,
+      fileType: fileType,
+      path: path,
+    );
+  }
+
+  /// Expert Notifications
+  static Future<List<NotificationModel>> getExpertNotifications({
+    required String expertId,
+  }) async {
+    return await DirectDbService.getExpertNotificationsDirect(expertId: expertId);
+  }
+
+  static Future<bool> markAllExpertNotificationsRead({
+    required String expertId,
+  }) async {
+    return await DirectDbService.markAllNotificationsReadDirect(
+      userRole: 'Expert',
+      userId: expertId,
+    );
+  }
+
+  /// Expert Profile & Details
+  static Future<Map<String, dynamic>?> getExpertProfileDetails({
+    required String expertId,
+  }) async {
+    return await DirectDbService.getExpertProfileDetailsDirect(expertId: expertId);
+  }
+
+  /// Toggle Expert Availability Status (Available vs Busy)
+  static Future<bool> toggleExpertAvailability({
+    required String expertId,
+    required String status,
+  }) async {
+    return await DirectDbService.toggleExpertStatus(expertId, status);
   }
 }
 

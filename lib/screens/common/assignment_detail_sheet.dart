@@ -163,65 +163,110 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
   }
 
   void _showRefundDialog() {
-    final reasonCtrl = TextEditingController();
+    String selectedCategory = 'Quality Not Up to Mark';
     final detailsCtrl = TextEditingController();
+    bool submitting = false;
+
+    final categories = [
+      'Quality Not Up to Mark',
+      'Missed Agreed Deadline',
+      'Wrong Solution / Irrelevant Topic',
+      'Duplicate Payment / Charged Twice',
+      'Change of Mind / Cancellation',
+      'Other Reason',
+    ];
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.currency_exchange_rounded, color: AppTheme.danger),
-            SizedBox(width: 8),
-            Text('Submit Refund Request'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Reason *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            TextField(
-              controller: reasonCtrl,
-              decoration: const InputDecoration(hintText: 'e.g. Deadline missed / Incomplete brief'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.currency_exchange_rounded, color: AppTheme.danger),
+                SizedBox(width: 8),
+                Text('Request Refund', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
             ),
-            const SizedBox(height: 12),
-            const Text('Details & Evidence', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            TextField(
-              controller: detailsCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(hintText: 'Provide additional details for review...'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Reason Category *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<String>(
+                    value: selectedCategory,
+                    isExpanded: true,
+                    items: categories
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 13))))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setDlgState(() => selectedCategory = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Explanation & Details *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: detailsCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      hintText: 'Please describe the issue or reason for the refund request...',
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (reasonCtrl.text.trim().isEmpty) return;
-              Navigator.pop(ctx);
-              setState(() => _actionLoading = true);
-              final res = await ApiService.requestRefund(
-                assignmentId: widget.assignment.assignmentId,
-                studentId: widget.currentUser.id,
-                reason: reasonCtrl.text.trim(),
-                details: detailsCtrl.text.trim(),
-              );
-              setState(() => _actionLoading = false);
-              if (mounted) {
-                if (res.success) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Refund request submitted to management.'), backgroundColor: AppTheme.success),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-            child: const Text('Submit Request'),
-          ),
-        ],
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        if (detailsCtrl.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please provide an explanation.')),
+                          );
+                          return;
+                        }
+                        setDlgState(() => submitting = true);
+                        final res = await ApiService.requestRefund(
+                          assignmentId: widget.assignment.assignmentId,
+                          studentId: widget.currentUser.id,
+                          reason: selectedCategory,
+                          details: detailsCtrl.text.trim(),
+                        );
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        if (!mounted) return;
+                        if (res.success) {
+                          _loadDetail();
+                          widget.onStatusChanged?.call();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Refund request submitted to management for review.'),
+                              backgroundColor: AppTheme.success,
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(res.message.isNotEmpty ? res.message : 'Refund request failed.'),
+                              backgroundColor: AppTheme.danger,
+                            ),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+                child: submitting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Submit Refund Request'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -492,6 +537,93 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showStudentUploadBriefDialog() {
+    final nameCtrl = TextEditingController();
+    String fileType = 'Document (PDF/DOCX)';
+    bool uploading = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.upload_file_rounded, color: AppTheme.primary),
+                SizedBox(width: 8),
+                Text('Upload Brief Material', style: TextStyle(fontSize: 16)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('File / Document Name *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(hintText: 'e.g. Lecture_Notes_Week4.pdf'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Document Type', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<String>(
+                    value: fileType,
+                    items: const [
+                      DropdownMenuItem(value: 'Document (PDF/DOCX)', child: Text('Document (PDF/DOCX)')),
+                      DropdownMenuItem(value: 'Presentation / Slides', child: Text('Presentation / Slides')),
+                      DropdownMenuItem(value: 'Rubric / Marking Criteria', child: Text('Rubric / Marking Criteria')),
+                      DropdownMenuItem(value: 'Dataset / Code (ZIP/CSV)', child: Text('Dataset / Code (ZIP/CSV)')),
+                      DropdownMenuItem(value: 'Other Reference File', child: Text('Other Reference File')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setDlgState(() => fileType = v);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: uploading
+                    ? null
+                    : () async {
+                        if (nameCtrl.text.trim().isEmpty) return;
+                        setDlgState(() => uploading = true);
+                        final ok = await ApiService.uploadStudentSupplementaryFile(
+                          assignmentId: widget.assignment.assignmentId,
+                          fileName: nameCtrl.text.trim(),
+                          fileType: fileType,
+                        );
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        if (!mounted) return;
+                        if (ok) {
+                          _loadDetail();
+                          widget.onStatusChanged?.call();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Brief material uploaded successfully!'), backgroundColor: AppTheme.success),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Upload failed. Please try again.'), backgroundColor: AppTheme.danger),
+                          );
+                        }
+                      },
+                child: uploading
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Upload File'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -975,12 +1107,39 @@ class _AssignmentDetailSheetState extends State<AssignmentDetailSheet> {
                   const SizedBox(height: 16),
 
                   // Student Brief Materials
-                  if (briefFiles.isNotEmpty) ...[
-                    Text('Student Brief Materials (${briefFiles.length})', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Student Brief Materials (${briefFiles.length})', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      if (widget.currentUser.isStudent)
+                        TextButton.icon(
+                          onPressed: _showStudentUploadBriefDialog,
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text('Add File', style: TextStyle(fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (briefFiles.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: AppTheme.bg, borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('No supplementary materials attached.', style: TextStyle(fontSize: 12, color: AppTheme.textDim)),
+                          if (widget.currentUser.isStudent)
+                            TextButton(
+                              onPressed: _showStudentUploadBriefDialog,
+                              child: const Text('Attach Files', style: TextStyle(fontSize: 12)),
+                            ),
+                        ],
+                      ),
+                    )
+                  else
                     ...briefFiles.map((f) => _buildFileTile(f)),
-                    const SizedBox(height: 16),
-                  ],
+                  const SizedBox(height: 16),
 
                   // Assigned Expert Info (if present)
                   if (_detailData != null && _detailData!['allocation'] is Map) ...[
